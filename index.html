@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BudgetBuddy - Personal Finance Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="topbar">
+        <div class="logo">
+            <img src="budgetbuddy-logo.svg" alt="BudgetBuddy" />
+        </div>
+    </header>
+
+    <div class="app-body">
+        <aside class="app-sidebar">
+            <nav class="sidebar-nav">
+                <button class="nav-item active" data-view="dashboard">
+                    <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="13" width="4" height="8" rx="1"/>
+                        <rect x="10" y="8" width="4" height="13" rx="1"/>
+                        <rect x="17" y="3" width="4" height="18" rx="1"/>
+                    </svg>
+                    <span class="nav-label">Dashboard</span>
+                </button>
+                <button class="nav-item" data-view="categories">
+                    <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    <span class="nav-label">Budget</span>
+                </button>
+                <button class="nav-item" data-view="transactions">
+                    <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <line x1="10" y1="9" x2="8" y2="9"/>
+                    </svg>
+                    <span class="nav-label">Transactions</span>
+                </button>
+            </nav>
+            <div class="sidebar-account-list" id="sidebar-account-list" style="display: none;"></div>
+            <div class="sidebar-net-worth">
+                <div class="sidebar-net-worth-inner">
+                    <div class="sidebar-net-worth-label">Net Worth</div>
+                    <div class="sidebar-net-worth-value" id="sidebar-net-worth-value">$0.00</div>
+                </div>
+            </div>
+        </aside>
+
+        <main>
+            <!-- Dashboard View -->
+            <section id="dashboard-view" class="view active">
+                <div class="dashboard-layout">
+                    <aside class="dashboard-sidebar" id="dashboard-sidebar"></aside>
+                    <div class="dashboard-main">
+                        <div class="dashboard-top-row">
+                            <div class="card">
+                                <h3>Accounts Summary</h3>
+                                <div id="accounts-summary">No accounts yet</div>
+                            </div>
+                            <div class="card chart-card">
+                                <h3>Spending by Category</h3>
+                                <div class="spending-chart-layout" id="spending-chart-layout">
+                                    <canvas id="spending-pie-chart"></canvas>
+                                    <div class="spending-chart-legend" id="spending-chart-legend"></div>
+                                </div>
+                                <div class="spending-chart-total" id="spending-chart-total"></div>
+                            </div>
+                        </div>
+                        <div class="card chart-card">
+                            <h3>Spending Trend</h3>
+                            <div class="chart-controls" id="trend-chart-controls"></div>
+                            <canvas id="trend-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Accounts View -->
+            <!-- Categories View -->
+            <section id="categories-view" class="view">
+                <div class="view-header">
+                    <div class="header-buttons">
+                        <button class="btn-secondary" id="auto-allocate-btn">Auto-Allocate Limits</button>
+                        <button class="btn-secondary" id="add-group-btn">+ Add Group</button>
+                        <button class="btn-primary" id="add-category-btn">+ Add Category</button>
+                    </div>
+                </div>
+
+                <div id="categories-container">
+                    <!-- Groups and categories will be rendered here -->
+                </div>
+
+                <!-- Add/Edit Category Modal -->
+                <div id="category-modal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="category-modal-title">Add Category</h3>
+                            <button class="close-btn" id="close-category-modal">&times;</button>
+                        </div>
+                        <form id="category-form">
+                            <div class="form-group">
+                                <label for="category-name">Category Name *</label>
+                                <input type="text" id="category-name" required placeholder="e.g., Power, Phone, Groceries">
+                            </div>
+                            <div class="form-group">
+                                <label for="category-group">Group (optional)</label>
+                                <select id="category-group">
+                                    <option value="">No Group</option>
+                                    <!-- Groups will be populated here -->
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="category-limit">Monthly Budget Limit (optional)</label>
+                                <input type="number" id="category-limit" step="0.01" placeholder="0.00">
+                                <small>Leave blank for no limit</small>
+                            </div>
+                            <div class="modal-actions">
+                                <button type="button" class="btn-danger" id="delete-category-btn" style="display: none">Delete</button>
+                                <button type="button" class="btn-secondary" id="cancel-category-btn">Cancel</button>
+                                <button type="submit" class="btn-primary">Save Category</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Add/Edit Group Modal -->
+                <div id="group-modal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="group-modal-title">Add Group</h3>
+                            <button class="close-btn" id="close-group-modal">&times;</button>
+                        </div>
+                        <form id="group-form">
+                            <div class="form-group">
+                                <label for="group-name">Group Name *</label>
+                                <input type="text" id="group-name" required placeholder="e.g., Utilities, Housing">
+                            </div>
+                            <div class="form-group">
+                                <label for="group-limit">Monthly Budget Limit (optional)</label>
+                                <input type="number" id="group-limit" step="0.01" placeholder="0.00">
+                                <small>Budget for all categories in this group combined</small>
+                            </div>
+                            <div class="modal-actions">
+                                <button type="button" class="btn-danger" id="delete-group-btn" style="display: none">Delete</button>
+                                <button type="button" class="btn-secondary" id="cancel-group-btn">Cancel</button>
+                                <button type="submit" class="btn-primary">Save Group</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Allocation Modal -->
+                <div id="allocate-modal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>Allocate to Category</h3>
+                            <button class="close-btn">&times;</button>
+                        </div>
+                        <div class="allocate-body">
+                            <div class="allocate-info">
+                                <div class="allocate-info-row">
+                                    <span>Category:</span>
+                                    <strong id="allocate-category-name"></strong>
+                                </div>
+                                <div class="allocate-info-row">
+                                    <span>Month:</span>
+                                    <strong id="allocate-month"></strong>
+                                </div>
+                                <div class="allocate-info-row">
+                                    <span>Available to Budget:</span>
+                                    <strong id="allocate-available" class="text-primary"></strong>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="allocate-amount">Allocation Amount *</label>
+                                <input type="number" id="allocate-amount" step="0.01" placeholder="0.00">
+                                <small>Current: <span id="allocate-current">$0.00</span></small>
+                            </div>
+                            <div class="allocate-quick-actions">
+                                <button type="button" class="btn-secondary btn-small" id="allocate-use-limit">
+                                    Use Monthly Limit ($<span id="allocate-limit-value">0</span>)
+                                </button>
+                                <button type="button" class="btn-secondary btn-small" id="allocate-use-available">
+                                    Use All Available
+                                </button>
+                            </div>
+                        </div>
+                        <div class="modal-actions">
+                            <button type="button" class="btn-secondary">Cancel</button>
+                            <button type="button" class="btn-primary" id="save-allocation-btn">Save Allocation</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Transactions View -->
+            <section id="transactions-view" class="view">
+                <div class="view-header">
+                    <button class="btn-primary" id="add-transaction-btn">+ Add Transaction</button>
+                </div>
+
+                <div class="mobile-account-filter" id="mobile-account-filter"></div>
+
+                <!-- Bulk Action Bar -->
+                <div class="action-bar" id="action-bar">
+                    <span class="action-bar-info" id="action-bar-info">0 selected</span>
+                    <button class="btn-primary btn-small" id="action-bar-edit-btn">Edit Selected</button>
+                    <button class="btn-danger btn-small" id="action-bar-delete-btn">Delete Selected</button>
+                </div>
+
+                <!-- Transactions List -->
+                <div class="transactions-list" id="transactions-list">
+                    <!-- Transactions will be rendered here -->
+                </div>
+
+                <!-- Add/Edit Transaction Modal -->
+                <div id="transaction-modal" class="modal">
+                    <div class="modal-content modal-large">
+                        <div class="modal-header">
+                            <h3 id="transaction-modal-title">Add Transaction</h3>
+                            <button class="close-btn" id="close-transaction-modal">&times;</button>
+                        </div>
+                        <form id="transaction-form">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="transaction-date">Date *</label>
+                                    <input type="date" id="transaction-date" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="transaction-type">Type *</label>
+                                    <select id="transaction-type" required>
+                                        <option value="">Select type...</option>
+                                        <option value="income">Income</option>
+                                        <option value="expense">Expense</option>
+                                        <option value="transfer">Transfer</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="payee-section">
+                                <div class="form-group">
+                                    <label for="transaction-payee">Payee *</label>
+                                    <input type="text" id="transaction-payee" list="payee-list" required placeholder="e.g., Grocery Store, Employer">
+                                    <datalist id="payee-list">
+                                        <!-- Payees will be populated here -->
+                                    </datalist>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="transaction-account">Account *</label>
+                                    <select id="transaction-account" required>
+                                        <option value="">Select account...</option>
+                                        <!-- Accounts will be populated here -->
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="transaction-amount">Amount *</label>
+                                    <input type="number" id="transaction-amount" step="0.01" required placeholder="0.00">
+                                </div>
+                            </div>
+
+                            <!-- To Account (transfers only) -->
+                            <div class="form-group" id="to-account-section" style="display: none;">
+                                <label for="transaction-to-account">To Account *</label>
+                                <select id="transaction-to-account">
+                                    <option value="">Select account...</option>
+                                </select>
+                            </div>
+
+                            <!-- Single Category Selection -->
+                            <div class="form-group" id="single-category-section">
+                                <label for="transaction-category">Category *</label>
+                                <select id="transaction-category" required>
+                                    <option value="">Select category...</option>
+                                    <option value="__split__">Split Transaction</option>
+                                    <!-- Categories will be populated here -->
+                                </select>
+                            </div>
+
+                            <!-- Splits Section (Hidden by Default) -->
+                            <div class="splits-section" id="splits-section" style="display: none;">
+                                <div class="splits-header">
+                                    <label>Category Splits *</label>
+                                    <button type="button" class="btn-secondary btn-small" id="add-split-btn">+ Add Split</button>
+                                </div>
+                                <div id="splits-container">
+                                    <!-- Splits will be added here -->
+                                </div>
+                                <div class="splits-total">
+                                    <span>Total Allocated:</span>
+                                    <strong id="splits-total-amount">$0.00</strong>
+                                    <span id="splits-difference" class="splits-difference"></span>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="transaction-notes">Notes (optional)</label>
+                                <textarea id="transaction-notes" rows="2" placeholder="Add any notes..."></textarea>
+                            </div>
+
+                            <div class="modal-actions">
+                                <button type="button" class="btn-secondary" id="cancel-transaction-btn">Cancel</button>
+                                <button type="submit" class="btn-primary" id="save-transaction-btn">Save Transaction</button>
+                                <button type="button" class="btn-primary" id="save-and-add-btn">Save & Add Another</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Bulk Edit Modal -->
+                <div id="bulk-edit-modal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>Bulk Edit Transactions</h3>
+                            <button class="close-btn" id="close-bulk-edit-modal">&times;</button>
+                        </div>
+                        <form id="bulk-edit-form">
+                            <p class="bulk-edit-hint">Leave fields blank to keep current values.</p>
+                            <div class="form-group">
+                                <label for="bulk-edit-date">Date</label>
+                                <input type="date" id="bulk-edit-date">
+                            </div>
+                            <div class="form-group">
+                                <label for="bulk-edit-account">Account</label>
+                                <select id="bulk-edit-account">
+                                    <option value="">No change</option>
+                                    <!-- Accounts populated by JS -->
+                                </select>
+                            </div>
+                            <div class="modal-actions">
+                                <button type="button" class="btn-secondary" id="cancel-bulk-edit-btn">Cancel</button>
+                                <button type="submit" class="btn-primary">Save Changes</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Account Modal -->
+    <div id="account-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="account-modal-title">Add Account</h3>
+                <button class="close-btn" id="close-account-modal">&times;</button>
+            </div>
+            <form id="account-form">
+                <div class="form-group">
+                    <label for="account-name">Account Name *</label>
+                    <input type="text" id="account-name" required placeholder="e.g., Chase Checking">
+                </div>
+                <div class="form-group">
+                    <label for="account-type">Account Type *</label>
+                    <select id="account-type" required>
+                        <option value="">Select type...</option>
+                        <option value="chequing">Chequing</option>
+                        <option value="savings">Savings</option>
+                        <option value="cash">Cash</option>
+                        <option value="credit">Credit Card</option>
+                        <option value="tfsa">TFSA</option>
+                        <option value="rrsp">RRSP</option>
+                        <option value="investment">Investment</option>
+                        <option value="mortgage">Mortgage</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="account-balance">Starting Balance *</label>
+                    <input type="number" id="account-balance" step="0.01" required placeholder="0.00">
+                </div>
+                <div class="form-group">
+                    <label for="account-notes">Notes (optional)</label>
+                    <textarea id="account-notes" rows="3" placeholder="Add any notes about this account..."></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" id="cancel-account-btn">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Account</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <nav class="bottom-nav">
+        <button class="bottom-nav-item active" data-view="dashboard">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="13" width="4" height="8" rx="1"/>
+                <rect x="10" y="8" width="4" height="13" rx="1"/>
+                <rect x="17" y="3" width="4" height="18" rx="1"/>
+            </svg>
+        </button>
+        <button class="bottom-nav-item" data-view="categories">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+        </button>
+        <button class="bottom-nav-item" data-view="transactions">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <line x1="10" y1="9" x2="8" y2="9"/>
+            </svg>
+        </button>
+    </nav>
+
+    <script src="app.js"></script>
+</body>
+</html>
