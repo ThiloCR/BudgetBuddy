@@ -820,28 +820,38 @@ class BudgetBuddy {
         </div>`;
 
         // TBB Banners for each visible month (aligned with table columns)
+        // True YNAB model: Show cascading global TBB
         const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
                            'July', 'August', 'September', 'October', 'November', 'December'];
 
         let tbbBanners = '<div class="tbb-banners-wrapper"><div class="tbb-banners-container">';
         tbbBanners += '<div class="tbb-spacer"></div>'; // Empty space for category name column
 
-        months.forEach(m => {
-            // Calculate to ensure cache is populated with all values
-            this.calculateAvailableFunds(m.year, m.month);
-            const tbbData = this.tbbHistory[`${m.year}-${m.month}`] ||
-                            { income: 0, allocated: 0, available: 0, overspending: 0 };
+        months.forEach((m, idx) => {
+            // Calculate TBB up to the PREVIOUS month (to show available for THIS month)
+            const prevMonth = m.month === 0 ? 11 : m.month - 1;
+            const prevYear = m.month === 0 ? m.year - 1 : m.year;
+            const tbbBeforeMonth = this.calculateGlobalTBB(prevYear, prevMonth);
+
+            // Calculate this month's allocations
+            let thisMonthAllocated = 0;
+            this.categories.forEach(cat => {
+                const allocKey = `${cat.id}-${m.year}-${m.month}`;
+                thisMonthAllocated += this.allocations[allocKey] || 0;
+            });
+
+            const available = tbbBeforeMonth.available;
             const isCurrent = m.year === currentYear && m.month === currentMonth;
 
             tbbBanners += `<div class="tbb-banner${isCurrent ? ' current-month-tbb' : ''}" onclick="app.openQuickAllocate(${m.year}, ${m.month})">
                 <div class="tbb-inner">
                     <div class="tbb-label">${monthNames[m.month]} ${m.year}</div>
-                    <div class="tbb-amount${tbbData.available < 0 ? ' negative' : tbbData.available === 0 ? ' zero' : ''}">${this.formatCurrency(tbbData.available)}</div>
-                    <div class="tbb-sublabel">To Be Budgeted</div>
+                    <div class="tbb-amount${available < 0 ? ' negative' : available === 0 ? ' zero' : ''}">${this.formatCurrency(available)}</div>
+                    <div class="tbb-sublabel">Available to Budget</div>
                     <div class="tbb-details">
-                        <span class="tbb-detail-item">Income: ${this.formatCurrency(tbbData.income)}</span>
-                        <span class="tbb-detail-item">Allocated: ${this.formatCurrency(tbbData.allocated)}</span>
-                        ${tbbData.overspending > 0 ? `<span class="tbb-detail-item" style="color: #FCA5A5;">Overspend: -${this.formatCurrency(tbbData.overspending)}</span>` : ''}
+                        <span class="tbb-detail-item">Total Income: ${this.formatCurrency(tbbBeforeMonth.totalIncome)}</span>
+                        <span class="tbb-detail-item">Total Allocated: ${this.formatCurrency(tbbBeforeMonth.totalAllocated)}</span>
+                        ${tbbBeforeMonth.totalOverspending > 0 ? `<span class="tbb-detail-item tbb-overspending" title="Total overspending from previous months">Overspent: ${this.formatCurrency(tbbBeforeMonth.totalOverspending)}</span>` : ''}
                     </div>
                 </div>
             </div>`;
@@ -883,15 +893,16 @@ class BudgetBuddy {
             }
         });
 
-        // Handle category selection change
-        categorySelect.addEventListener('change', (e) => {
+        // Handle category selection change (now listening on hidden input)
+        const categoryHiddenInput = document.getElementById('transaction-category');
+        categoryHiddenInput.addEventListener('change', (e) => {
             const splitsSection = document.getElementById('splits-section');
             const singleCategorySection = document.getElementById('single-category-section');
 
             if (e.target.value === '__split__') {
                 // Show splits section
                 splitsSection.style.display = 'block';
-                singleCategorySection.querySelector('select').removeAttribute('required');
+                categoryHiddenInput.removeAttribute('required');
                 // Add initial split if none exist
                 if (document.querySelectorAll('.split-item').length === 0) {
                     this.addSplitRow();
@@ -899,7 +910,7 @@ class BudgetBuddy {
             } else {
                 // Hide splits section
                 splitsSection.style.display = 'none';
-                singleCategorySection.querySelector('select').setAttribute('required', 'required');
+                categoryHiddenInput.setAttribute('required', 'required');
             }
         });
 
@@ -958,6 +969,107 @@ class BudgetBuddy {
             this.saveBulkEdit();
         });
 
+        // Setup searchable category select
+        this.setupSearchableSelect('transaction-category');
+    }
+
+    setupSearchableSelect(fieldId) {
+        const searchInput = document.getElementById(`${fieldId}-search`);
+        const hiddenInput = document.getElementById(fieldId);
+        const dropdown = document.getElementById(`${fieldId}-dropdown`);
+
+        if (!searchInput || !dropdown) return;
+
+        // Populate dropdown initially
+        this.updateSearchableDropdown(fieldId, '');
+
+        // Show dropdown on focus
+        searchInput.addEventListener('focus', () => {
+            dropdown.classList.add('active');
+            this.updateSearchableDropdown(fieldId, searchInput.value);
+        });
+
+        // Filter on input
+        searchInput.addEventListener('input', (e) => {
+            this.updateSearchableDropdown(fieldId, e.target.value);
+        });
+
+        // Hide dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.classList.remove('active');
+            }
+        });
+
+        // Handle keyboard navigation
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                dropdown.classList.remove('active');
+            }
+        });
+    }
+
+    updateSearchableDropdown(fieldId, searchTerm) {
+        const dropdown = document.getElementById(`${fieldId}-dropdown`);
+        const hiddenInput = document.getElementById(fieldId);
+        const searchInput = document.getElementById(`${fieldId}-search`);
+
+        if (!dropdown) return;
+
+        const term = searchTerm.toLowerCase().trim();
+
+        // Build options list
+        let options = [];
+
+        // Add "Split Transaction" option for main category only
+        if (fieldId === 'transaction-category') {
+            options.push({
+                value: '__split__',
+                label: 'Split Transaction',
+                isSplit: true
+            });
+        }
+
+        // Add categories
+        this.categories.forEach(cat => {
+            if (!term || cat.name.toLowerCase().includes(term)) {
+                options.push({
+                    value: cat.id,
+                    label: cat.name,
+                    isSplit: false
+                });
+            }
+        });
+
+        // Render options
+        if (options.length === 0) {
+            dropdown.innerHTML = '<div class="searchable-select-empty">No categories found</div>';
+        } else {
+            dropdown.innerHTML = options.map(opt => {
+                const selectedClass = hiddenInput.value === opt.value ? ' selected' : '';
+                const splitClass = opt.isSplit ? ' split-option' : '';
+                return `<div class="searchable-select-option${selectedClass}${splitClass}" data-value="${opt.value}">${this.escapeHtml(opt.label)}</div>`;
+            }).join('');
+
+            // Add click handlers
+            dropdown.querySelectorAll('.searchable-select-option').forEach(option => {
+                option.addEventListener('click', () => {
+                    const value = option.getAttribute('data-value');
+                    const label = option.textContent;
+
+                    hiddenInput.value = value;
+                    searchInput.value = label;
+                    searchInput.classList.add('has-value');
+                    dropdown.classList.remove('active');
+
+                    // Trigger change event for split transaction handling
+                    if (fieldId === 'transaction-category') {
+                        const event = new Event('change', { bubbles: true });
+                        hiddenInput.dispatchEvent(event);
+                    }
+                });
+            });
+        }
     }
 
     toggleSort(column) {
@@ -1351,6 +1463,7 @@ class BudgetBuddy {
         const form = document.getElementById('transaction-form');
         const accountSelect = document.getElementById('transaction-account');
         const categorySelect = document.getElementById('transaction-category');
+        const categorySearchInput = document.getElementById('transaction-category-search');
         const splitsSection = document.getElementById('splits-section');
         const singleCategorySection = document.getElementById('single-category-section');
 
@@ -1385,15 +1498,10 @@ class BudgetBuddy {
             payeeList.appendChild(option);
         });
 
-        // Populate categories dropdown
-        categorySelect.innerHTML = '<option value="">Select category...</option>';
-        categorySelect.innerHTML += '<option value="__split__">Split Transaction</option>';
-        this.categories.forEach(category => {
-            const option = document.createElement('option');
-            option.value = category.id;
-            option.textContent = category.name;
-            categorySelect.appendChild(option);
-        });
+        // Reset searchable category select
+        categorySelect.value = '';
+        categorySearchInput.value = '';
+        categorySearchInput.classList.remove('has-value');
 
         // Clear splits container
         document.getElementById('splits-container').innerHTML = '';
@@ -1419,17 +1527,22 @@ class BudgetBuddy {
                 if (transaction.splits && transaction.splits.length > 1) {
                     // Multiple splits - show splits section
                     categorySelect.value = '__split__';
+                    categorySearchInput.value = 'Split Transaction';
+                    categorySearchInput.classList.add('has-value');
                     splitsSection.style.display = 'block';
-                    singleCategorySection.querySelector('select').removeAttribute('required');
+                    categorySelect.removeAttribute('required');
                     transaction.splits.forEach(split => {
                         this.addSplitRow(split.categoryId, split.amount);
                     });
                     this.updateSplitsTotal();
                 } else if (transaction.splits && transaction.splits.length === 1) {
                     // Single category
+                    const selectedCategory = this.categories.find(c => c.id === transaction.splits[0].categoryId);
                     categorySelect.value = transaction.splits[0].categoryId;
+                    categorySearchInput.value = selectedCategory ? selectedCategory.name : '';
+                    categorySearchInput.classList.add('has-value');
                     splitsSection.style.display = 'none';
-                    singleCategorySection.querySelector('select').setAttribute('required', 'required');
+                    categorySelect.setAttribute('required', 'required');
                 }
             }
         } else {
@@ -1442,7 +1555,7 @@ class BudgetBuddy {
             document.getElementById('transaction-type').value = 'expense';
             // Hide splits section
             splitsSection.style.display = 'none';
-            singleCategorySection.querySelector('select').setAttribute('required', 'required');
+            categorySelect.setAttribute('required', 'required');
         }
 
         this.updateTransferFields();
@@ -1452,7 +1565,8 @@ class BudgetBuddy {
     closeTransactionModal() {
         const modal = document.getElementById('transaction-modal');
         const splitsSection = document.getElementById('splits-section');
-        const singleCategorySection = document.getElementById('single-category-section');
+        const categorySelect = document.getElementById('transaction-category');
+        const categorySearchInput = document.getElementById('transaction-category-search');
 
         modal.classList.remove('active');
         document.getElementById('transaction-form').reset();
@@ -1460,7 +1574,9 @@ class BudgetBuddy {
 
         // Reset to single category mode
         splitsSection.style.display = 'none';
-        singleCategorySection.querySelector('select').setAttribute('required', 'required');
+        categorySelect.setAttribute('required', 'required');
+        categorySearchInput.value = '';
+        categorySearchInput.classList.remove('has-value');
 
         this.currentTransactionId = null;
         this.splitCounter = 0;
@@ -1470,21 +1586,26 @@ class BudgetBuddy {
     addSplitRow(categoryId = '', amount = '') {
         const container = document.getElementById('splits-container');
         const splitId = `split-${this.splitCounter++}`;
+        const searchId = `${splitId}-search`;
+        const hiddenId = `${splitId}-category`;
+        const dropdownId = `${splitId}-dropdown`;
 
         const splitDiv = document.createElement('div');
         splitDiv.className = 'split-item';
         splitDiv.id = splitId;
 
-        // Build category options
-        let categoryOptions = '<option value="">Select category...</option>';
-        this.categories.forEach(cat => {
-            const selected = cat.id === categoryId ? 'selected' : '';
-            categoryOptions += `<option value="${cat.id}" ${selected}>${this.escapeHtml(cat.name)}</option>`;
-        });
+        // Get category name if selected
+        const selectedCategory = categoryId ? this.categories.find(c => c.id === categoryId) : null;
+        const categoryName = selectedCategory ? selectedCategory.name : '';
+        const hasValueClass = categoryId ? ' has-value' : '';
 
         splitDiv.innerHTML = `
             <div class="form-group">
-                <select class="split-category" onchange="app.updateSplitsTotal()">${categoryOptions}</select>
+                <div class="searchable-select-wrapper">
+                    <input type="text" id="${searchId}" class="searchable-select-input${hasValueClass}" placeholder="Search..." autocomplete="off" value="${this.escapeHtml(categoryName)}">
+                    <input type="hidden" id="${hiddenId}" class="split-category" value="${categoryId}">
+                    <div class="searchable-select-dropdown" id="${dropdownId}"></div>
+                </div>
             </div>
             <div class="form-group">
                 <input type="number" class="split-amount" step="0.01" placeholder="0.00" value="${amount}" oninput="app.updateSplitsTotal()">
@@ -1493,7 +1614,88 @@ class BudgetBuddy {
         `;
 
         container.appendChild(splitDiv);
+
+        // Initialize searchable select for this split
+        this.setupSplitSearchableSelect(searchId, hiddenId, dropdownId);
+
         this.updateSplitsTotal();
+    }
+
+    setupSplitSearchableSelect(searchId, hiddenId, dropdownId) {
+        const searchInput = document.getElementById(searchId);
+        const hiddenInput = document.getElementById(hiddenId);
+        const dropdown = document.getElementById(dropdownId);
+
+        if (!searchInput || !dropdown) return;
+
+        // Populate dropdown initially
+        this.updateSplitDropdown(dropdownId, hiddenId, '');
+
+        // Show dropdown on focus
+        searchInput.addEventListener('focus', () => {
+            dropdown.classList.add('active');
+            this.updateSplitDropdown(dropdownId, hiddenId, searchInput.value);
+        });
+
+        // Filter on input
+        searchInput.addEventListener('input', (e) => {
+            this.updateSplitDropdown(dropdownId, hiddenId, e.target.value);
+        });
+
+        // Hide dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.classList.remove('active');
+            }
+        });
+
+        // Handle keyboard navigation
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                dropdown.classList.remove('active');
+            }
+        });
+    }
+
+    updateSplitDropdown(dropdownId, hiddenId, searchTerm) {
+        const dropdown = document.getElementById(dropdownId);
+        const hiddenInput = document.getElementById(hiddenId);
+        const searchInput = dropdown.previousElementSibling.previousElementSibling;
+
+        if (!dropdown) return;
+
+        const term = searchTerm.toLowerCase().trim();
+
+        // Build options list (no split option for splits)
+        let options = this.categories
+            .filter(cat => !term || cat.name.toLowerCase().includes(term))
+            .map(cat => ({ value: cat.id, label: cat.name }));
+
+        // Render options
+        if (options.length === 0) {
+            dropdown.innerHTML = '<div class="searchable-select-empty">No categories found</div>';
+        } else {
+            dropdown.innerHTML = options.map(opt => {
+                const selectedClass = hiddenInput.value === opt.value ? ' selected' : '';
+                return `<div class="searchable-select-option${selectedClass}" data-value="${opt.value}">${this.escapeHtml(opt.label)}</div>`;
+            }).join('');
+
+            // Add click handlers
+            dropdown.querySelectorAll('.searchable-select-option').forEach(option => {
+                option.addEventListener('click', () => {
+                    const value = option.getAttribute('data-value');
+                    const label = option.textContent;
+
+                    hiddenInput.value = value;
+                    searchInput.value = label;
+                    searchInput.classList.add('has-value');
+                    dropdown.classList.remove('active');
+
+                    // Update splits total
+                    this.updateSplitsTotal();
+                });
+            });
+        }
     }
 
     removeSplitRow(splitId) {
@@ -1701,13 +1903,15 @@ class BudgetBuddy {
 
             // Reset category to single mode
             const splitsSection = document.getElementById('splits-section');
-            const singleCategorySection = document.getElementById('single-category-section');
             const categorySelect = document.getElementById('transaction-category');
+            const categorySearchInput = document.getElementById('transaction-category-search');
 
             splitsSection.style.display = 'none';
-            singleCategorySection.querySelector('select').setAttribute('required', 'required');
+            categorySelect.setAttribute('required', 'required');
             document.getElementById('splits-container').innerHTML = '';
             categorySelect.value = '';
+            categorySearchInput.value = '';
+            categorySearchInput.classList.remove('has-value');
 
             // Reset the flag
             this.saveAndAddAnother = false;
@@ -1744,56 +1948,72 @@ class BudgetBuddy {
     }
 
     /**
-     * Calculate available "To Be Budgeted" for a month
+     * Calculate global TBB up to (and including) a specific month
+     * True YNAB model: all income received - all allocations made - overspending
      */
-    calculateAvailableFunds(year, month) {
-        const key = `${year}-${month}`;
-
-        // Check cache first
-        if (this.tbbHistory[key]) {
-            return this.tbbHistory[key].available;
-        }
-
-        // Get previous month's remaining
-        const prevMonth = month === 0 ? 11 : month - 1;
-        const prevYear = month === 0 ? year - 1 : year;
-        const prevKey = `${prevYear}-${prevMonth}`;
-        const startingBalance = this.tbbHistory[prevKey]?.available || 0;
-
-        // Calculate this month's income
-        const income = this.transactions
-            .filter(t => {
-                if (t.type !== 'income') return false;
-                const [tYear, tMonthStr] = t.date.split('-');
-                return parseInt(tYear) === year && parseInt(tMonthStr) - 1 === month;
-            })
-            .reduce((sum, t) => sum + t.totalAmount, 0);
-
-        // Calculate total allocated
-        let allocated = 0;
-        this.categories.forEach(cat => {
-            const allocKey = `${cat.id}-${year}-${month}`;
-            allocated += this.allocations[allocKey] || 0;
-        });
-
-        // Calculate overspending penalty from previous month
-        let overspendingPenalty = 0;
-        this.categories.forEach(cat => {
-            const budget = this.getCategoryBudget(cat.id, prevYear, prevMonth);
-            const spent = this.getCategorySpent(cat.id, prevYear, prevMonth);
-            const balance = budget - spent;
-            if (balance < 0) {
-                overspendingPenalty += Math.abs(balance);
+    calculateGlobalTBB(upToYear, upToMonth) {
+        // Calculate total income received up to and including this month
+        let totalIncome = 0;
+        this.transactions.forEach(t => {
+            if (t.type !== 'income') return;
+            const [tYear, tMonthStr] = t.date.split('-');
+            const tDate = parseInt(tYear) * 12 + parseInt(tMonthStr) - 1;
+            const upToDate = upToYear * 12 + upToMonth;
+            if (tDate <= upToDate) {
+                totalIncome += t.totalAmount;
             }
         });
 
-        const available = startingBalance + income - allocated - overspendingPenalty;
+        // Calculate total allocated up to and including this month
+        let totalAllocated = 0;
+        Object.keys(this.allocations).forEach(key => {
+            const [catId, year, month] = key.split('-');
+            const allocDate = parseInt(year) * 12 + parseInt(month);
+            const upToDate = upToYear * 12 + upToMonth;
+            if (allocDate <= upToDate) {
+                totalAllocated += this.allocations[key];
+            }
+        });
 
-        // Cache result
-        this.tbbHistory[key] = { startingBalance, income, allocated, available, overspending: overspendingPenalty };
-        this.saveData('tbb_history', this.tbbHistory);
+        // Calculate total overspending up to this month
+        let totalOverspending = 0;
+        // Get all unique months that have been budgeted
+        const budgetedMonths = new Set();
+        Object.keys(this.allocations).forEach(key => {
+            const [catId, year, month] = key.split('-');
+            budgetedMonths.add(`${year}-${month}`);
+        });
 
-        return available;
+        budgetedMonths.forEach(monthKey => {
+            const [year, month] = monthKey.split('-').map(n => parseInt(n));
+            const monthDate = year * 12 + month;
+            const upToDate = upToYear * 12 + upToMonth;
+
+            if (monthDate < upToDate) { // Only count overspending from previous months
+                this.categories.forEach(cat => {
+                    const budget = this.getCategoryBudget(cat.id, year, month);
+                    const spent = this.getCategorySpent(cat.id, year, month);
+                    const balance = budget - spent;
+                    if (balance < 0) {
+                        totalOverspending += Math.abs(balance);
+                    }
+                });
+            }
+        });
+
+        return {
+            totalIncome,
+            totalAllocated,
+            totalOverspending,
+            available: totalIncome - totalAllocated - totalOverspending
+        };
+    }
+
+    /**
+     * Legacy method - kept for compatibility, redirects to global TBB
+     */
+    calculateAvailableFunds(year, month) {
+        return this.calculateGlobalTBB(year, month).available;
     }
 
     /**
@@ -1825,16 +2045,11 @@ class BudgetBuddy {
     }
 
     /**
-     * Invalidate TBB cache for a month and all future months
+     * Invalidate TBB cache - no longer needed with global TBB model
+     * Kept for compatibility but does nothing
      */
     invalidateTBBCache(year, month) {
-        const startKey = `${year}-${month}`;
-        Object.keys(this.tbbHistory).forEach(key => {
-            if (key >= startKey) {
-                delete this.tbbHistory[key];
-            }
-        });
-        this.saveData('tbb_history', this.tbbHistory);
+        // Global TBB is calculated on-demand, no cache to invalidate
     }
 
     updateAccountsSummary() {
@@ -1986,9 +2201,6 @@ class BudgetBuddy {
             if (data.length > 1) ctx.closePath();
             ctx.fillStyle = item.color;
             ctx.fill();
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 2;
-            ctx.stroke();
 
             // Percentage label on slice (only if slice is large enough to fit text)
             const pct = (item.amount / total) * 100;

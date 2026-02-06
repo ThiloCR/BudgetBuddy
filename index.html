@@ -277,11 +277,11 @@
                             <!-- Single Category Selection -->
                             <div class="form-group" id="single-category-section">
                                 <label for="transaction-category">Category *</label>
-                                <select id="transaction-category" required>
-                                    <option value="">Select category...</option>
-                                    <option value="__split__">Split Transaction</option>
-                                    <!-- Categories will be populated here -->
-                                </select>
+                                <div class="searchable-select-wrapper">
+                                    <input type="text" id="transaction-category-search" class="searchable-select-input" placeholder="Type to search categories..." autocomplete="off">
+                                    <input type="hidden" id="transaction-category" required>
+                                    <div class="searchable-select-dropdown" id="transaction-category-dropdown"></div>
+                                </div>
                             </div>
 
                             <!-- Splits Section (Hidden by Default) -->
