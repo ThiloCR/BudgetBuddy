@@ -2418,7 +2418,7 @@ class BudgetBuddy {
         // Canvas setup
         const dpr = window.devicePixelRatio || 1;
         const cssW = canvas.offsetWidth || 680;
-        const cssH = Math.round(cssW * 260 / 680);
+        const cssH = Math.round(cssW / 3.5);
         canvas.width = cssW * dpr;
         canvas.height = cssH * dpr;
         canvas.style.height = cssH + 'px';

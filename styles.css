@@ -39,7 +39,7 @@ body {
     left: 0;
     right: 0;
     height: 56px;
-    background-color: #fff;
+    background-color: #1E3A5F;
     box-shadow: var(--shadow);
     z-index: 100;
     display: flex;
@@ -275,10 +275,10 @@ button {
 
 /* Cards */
 .card {
-    background-color: var(--card-background);
+    background-color: var(--background);
     border-radius: 8px;
     padding: 16px;
-    box-shadow: var(--shadow);
+    box-shadow: none;
     margin-bottom: 20px;
 }
 
@@ -382,8 +382,8 @@ button {
 
 .dashboard-top-row {
     display: grid;
-    grid-template-columns: 2fr 3fr;
-    gap: 20px;
+    grid-template-columns: 1.5fr 3.5fr;
+    gap: 32px;
     align-items: stretch;
 }
 
@@ -629,10 +629,9 @@ button {
 /* Spending Trend Chart */
 #trend-chart {
     width: 100%;
-    max-width: 680px;
     margin: 0 auto;
     display: block;
-    aspect-ratio: 680 / 260;
+    aspect-ratio: 3.5 / 1;
 }
 
 .trend-toggle-btn {
