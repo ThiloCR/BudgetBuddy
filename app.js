@@ -100,6 +100,50 @@ class BudgetBuddy {
         return Math.round(amounts.reduce((sum, amount) => sum + amount, 0) * 100) / 100;
     }
 
+    // Generic modal setup helper to eliminate duplication
+    setupModal(config) {
+        const {
+            modalId,
+            closeCallback,
+            submitCallback,
+            deleteCallback = null,
+            deleteBtnId = null
+        } = config;
+
+        const modal = document.getElementById(modalId);
+        const closeBtn = document.getElementById(`close-${modalId}`);
+        const cancelBtn = document.getElementById(`cancel-${modalId.replace('-modal', '-btn')}`);
+        const form = document.getElementById(`${modalId.replace('-modal', '-form')}`);
+
+        if (!modal || !closeBtn || !cancelBtn || !form) {
+            console.warn(`Modal setup incomplete for ${modalId}`);
+            return;
+        }
+
+        // Close button listeners
+        closeBtn.addEventListener('click', closeCallback);
+        cancelBtn.addEventListener('click', closeCallback);
+
+        // Close on backdrop click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeCallback();
+        });
+
+        // Form submit
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            submitCallback();
+        });
+
+        // Optional delete button
+        if (deleteCallback && deleteBtnId) {
+            const deleteBtn = document.getElementById(deleteBtnId);
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', deleteCallback);
+            }
+        }
+    }
+
     // Navigation
     setupNavigation() {
         document.querySelectorAll('.nav-item, .bottom-nav-item').forEach(item => {
@@ -137,26 +181,10 @@ class BudgetBuddy {
 
     // Account Management
     setupAccountManagement() {
-        const modal = document.getElementById('account-modal');
-        const closeBtn = document.getElementById('close-account-modal');
-        const cancelBtn = document.getElementById('cancel-account-btn');
-        const form = document.getElementById('account-form');
-
-        // Close modal
-        closeBtn.addEventListener('click', () => this.closeAccountModal());
-        cancelBtn.addEventListener('click', () => this.closeAccountModal());
-
-        // Close modal when clicking outside
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                this.closeAccountModal();
-            }
-        });
-
-        // Handle form submission
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.saveAccount();
+        this.setupModal({
+            modalId: 'account-modal',
+            closeCallback: () => this.closeAccountModal(),
+            submitCallback: () => this.saveAccount()
         });
     }
 
@@ -253,10 +281,6 @@ class BudgetBuddy {
     // Group Management
     setupGroupManagement() {
         const addBtn = document.getElementById('add-group-btn');
-        const modal = document.getElementById('group-modal');
-        const closeBtn = document.getElementById('close-group-modal');
-        const cancelBtn = document.getElementById('cancel-group-btn');
-        const form = document.getElementById('group-form');
 
         // Open modal for new group
         addBtn.addEventListener('click', () => {
@@ -264,28 +288,16 @@ class BudgetBuddy {
             this.openGroupModal();
         });
 
-        // Close modal
-        closeBtn.addEventListener('click', () => this.closeGroupModal());
-        cancelBtn.addEventListener('click', () => this.closeGroupModal());
-
-        // Delete group
-        document.getElementById('delete-group-btn').addEventListener('click', () => {
-            const groupId = this.currentGroupId;
-            this.closeGroupModal();
-            this.deleteGroup(groupId);
-        });
-
-        // Close modal when clicking outside
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
+        this.setupModal({
+            modalId: 'group-modal',
+            closeCallback: () => this.closeGroupModal(),
+            submitCallback: () => this.saveGroup(),
+            deleteCallback: () => {
+                const groupId = this.currentGroupId;
                 this.closeGroupModal();
-            }
-        });
-
-        // Handle form submission
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.saveGroup();
+                this.deleteGroup(groupId);
+            },
+            deleteBtnId: 'delete-group-btn'
         });
     }
 
@@ -386,10 +398,6 @@ class BudgetBuddy {
     // Category Management
     setupCategoryManagement() {
         const addBtn = document.getElementById('add-category-btn');
-        const modal = document.getElementById('category-modal');
-        const closeBtn = document.getElementById('close-category-modal');
-        const cancelBtn = document.getElementById('cancel-category-btn');
-        const form = document.getElementById('category-form');
 
         // Open modal for new category
         addBtn.addEventListener('click', () => {
@@ -397,28 +405,16 @@ class BudgetBuddy {
             this.openCategoryModal();
         });
 
-        // Close modal
-        closeBtn.addEventListener('click', () => this.closeCategoryModal());
-        cancelBtn.addEventListener('click', () => this.closeCategoryModal());
-
-        // Delete category
-        document.getElementById('delete-category-btn').addEventListener('click', () => {
-            const categoryId = this.currentCategoryId;
-            this.closeCategoryModal();
-            this.deleteCategory(categoryId);
-        });
-
-        // Close modal when clicking outside
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
+        this.setupModal({
+            modalId: 'category-modal',
+            closeCallback: () => this.closeCategoryModal(),
+            submitCallback: () => this.saveCategory(),
+            deleteCallback: () => {
+                const categoryId = this.currentCategoryId;
                 this.closeCategoryModal();
-            }
-        });
-
-        // Handle form submission
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.saveCategory();
+                this.deleteCategory(categoryId);
+            },
+            deleteBtnId: 'delete-category-btn'
         });
     }
 
@@ -1613,19 +1609,10 @@ class BudgetBuddy {
         });
 
         // Bulk edit modal
-        const bulkEditModal = document.getElementById('bulk-edit-modal');
-        const closeBulkEditBtn = document.getElementById('close-bulk-edit-modal');
-        const cancelBulkEditBtn = document.getElementById('cancel-bulk-edit-btn');
-        const bulkEditForm = document.getElementById('bulk-edit-form');
-
-        closeBulkEditBtn.addEventListener('click', () => this.closeBulkEditModal());
-        cancelBulkEditBtn.addEventListener('click', () => this.closeBulkEditModal());
-        bulkEditModal.addEventListener('click', (e) => {
-            if (e.target === bulkEditModal) this.closeBulkEditModal();
-        });
-        bulkEditForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.saveBulkEdit();
+        this.setupModal({
+            modalId: 'bulk-edit-modal',
+            closeCallback: () => this.closeBulkEditModal(),
+            submitCallback: () => this.saveBulkEdit()
         });
 
         // Setup searchable category select
