@@ -31,6 +31,12 @@ class BudgetBuddy {
         this.trendShowIncome = true;
         this.tbbCache = {}; // Cache for TBB calculations: key = 'year-month', value = {totalIncome, totalAllocated, totalOverspending, available}
 
+        // Change tracking for smart re-rendering
+        this.lastTransactionsHash = null;
+        this.lastAccountsHash = null;
+        this.lastDashFilterState = null;
+        this.spendingMapCache = null;
+
         this.init();
     }
 
@@ -1350,18 +1356,23 @@ class BudgetBuddy {
         }
 
         // Pre-compute spending map: key = "catId-year-month", value = net spent (expense +, income -)
-        const spentMap = {};
-        this.transactions.forEach(t => {
-            if (!t.splits) return;
-            const parts = t.date.split('-');
-            const tYear = parseInt(parts[0], 10);
-            const tMonth = parseInt(parts[1], 10) - 1;
-            t.splits.forEach(split => {
-                const key = `${split.categoryId}-${tYear}-${tMonth}`;
-                if (!spentMap[key]) spentMap[key] = 0;
-                spentMap[key] += t.type === 'expense' ? split.amount : -split.amount;
+        // Use cached version if available
+        if (!this.spendingMapCache) {
+            const spentMap = {};
+            this.transactions.forEach(t => {
+                if (!t.splits) return;
+                const parts = t.date.split('-');
+                const tYear = parseInt(parts[0], 10);
+                const tMonth = parseInt(parts[1], 10) - 1;
+                t.splits.forEach(split => {
+                    const key = `${split.categoryId}-${tYear}-${tMonth}`;
+                    if (!spentMap[key]) spentMap[key] = 0;
+                    spentMap[key] += t.type === 'expense' ? split.amount : -split.amount;
+                });
             });
-        });
+            this.spendingMapCache = spentMap;
+        }
+        const spentMap = this.spendingMapCache;
 
         // Helper: generate Budget / Spent / Balance cells for one month with click handler
         const genCellsWithClick = (categoryId, budget, spent, isCurrent, year, month) => {
@@ -1796,6 +1807,9 @@ class BudgetBuddy {
             this.invalidateTBBCache(parseInt(year), parseInt(month));
         });
 
+        // Invalidate spending map cache
+        this.spendingMapCache = null;
+
         this.selectedTransactions.clear();
         this.updateActionBar();
         this.renderTransactions();
@@ -1865,6 +1879,10 @@ class BudgetBuddy {
 
         this.saveData('transactions', this.transactions);
         if (accountValue) this.saveData('accounts', this.accounts);
+
+        // Invalidate spending map cache if transactions modified
+        this.spendingMapCache = null;
+
         this.selectedTransactions.clear();
         this.updateActionBar();
         this.closeBulkEditModal();
@@ -2514,6 +2532,9 @@ class BudgetBuddy {
         const [tYear, tMonth] = date.split('-');
         this.invalidateTBBCache(parseInt(tYear), parseInt(tMonth) - 1);
 
+        // Invalidate spending map cache
+        this.spendingMapCache = null;
+
         this.renderTransactions();
         this.updateDashboard();
 
@@ -2598,13 +2619,42 @@ class BudgetBuddy {
         }
     }
 
-    // Dashboard
+    // Helper to generate simple hash for change detection
+    simpleHash(data) {
+        return JSON.stringify(data).length + '-' + JSON.stringify(data).slice(0, 100);
+    }
+
+    // Dashboard with smart re-rendering
     updateDashboard() {
+        // Always update net worth (fast operation)
         this.updateNetWorth();
-        this.renderDashboardSidebar();
-        this.updateAccountsSummary();
-        this.renderSpendingChart();
-        this.renderTrendChart();
+
+        // Check if accounts changed
+        const accountsHash = this.simpleHash(this.accounts);
+        const accountsChanged = accountsHash !== this.lastAccountsHash;
+        if (accountsChanged) {
+            this.lastAccountsHash = accountsHash;
+            this.updateAccountsSummary();
+        }
+
+        // Check if transactions or filters changed
+        const transactionsHash = this.simpleHash(this.transactions);
+        const filterState = JSON.stringify({
+            accounts: this.dashFilterAccounts,
+            categories: this.dashFilterCategories,
+            dateRange: this.dashFilterDateRange
+        });
+        const transactionsChanged = transactionsHash !== this.lastTransactionsHash;
+        const filtersChanged = filterState !== this.lastDashFilterState;
+
+        if (transactionsChanged || filtersChanged) {
+            this.lastTransactionsHash = transactionsHash;
+            this.lastDashFilterState = filterState;
+            this.spendingMapCache = null; // Invalidate spending cache
+            this.renderDashboardSidebar();
+            this.renderSpendingChart();
+            this.renderTrendChart();
+        }
     }
 
     /**
