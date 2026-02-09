@@ -2,6 +2,11 @@
 
 class BudgetBuddy {
     constructor() {
+        // Initialize services
+        this.moneyService = new MoneyService();
+        this.uiState = new UIStateManager();
+
+        // Data
         this.accounts = this.loadData('accounts') || [];
         this.categories = this.loadData('categories') || [];
         this.groups = this.loadData('groups') || [];
@@ -9,33 +14,16 @@ class BudgetBuddy {
         this.payees = this.loadData('payees') || [];
         this.allocations = this.loadData('allocations') || {};
         this.tbbHistory = this.loadData('tbb_history') || {};
+
+        // Current editing state
         this.currentAccountId = null;
         this.currentCategoryId = null;
         this.currentGroupId = null;
         this.currentTransactionId = null;
         this.currentAllocation = null;
-        this.sortColumn = 'date';
-        this.sortDirection = 'desc';
-        this.filterAccounts = [];
-        this.manageAccountsMode = false;
-        this.selectedTransactions = new Set();
-        this.categoryViewOffset = 0;
-        this.splitCounter = 0;
-        this.saveAndAddAnother = false;
-        this.dashFilterAccounts = [];
-        this.dashFilterCategories = [];
-        this.dashFilterDateRange = 'this-month';
-        this.dashExpandedSections = new Set();
-        this.collapsedGroups = new Set();
-        this.trendShowExpense = true;
-        this.trendShowIncome = true;
-        this.tbbCache = {}; // Cache for TBB calculations: key = 'year-month', value = {totalIncome, totalAllocated, totalOverspending, available}
 
-        // Change tracking for smart re-rendering
-        this.lastTransactionsHash = null;
-        this.lastAccountsHash = null;
-        this.lastDashFilterState = null;
-        this.spendingMapCache = null;
+        // Budget calculation cache
+        this.tbbCache = {}; // Cache for TBB calculations: key = 'year-month', value = {totalIncome, totalAllocated, totalOverspending, available}
 
         this.init();
     }
@@ -88,23 +76,6 @@ class BudgetBuddy {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
     }
 
-    // Money helper functions to handle floating-point precision issues
-    // Always round to 2 decimal places to prevent penny discrepancies
-    moneyAdd(a, b) {
-        return Math.round((a + b) * 100) / 100;
-    }
-
-    moneySubtract(a, b) {
-        return Math.round((a - b) * 100) / 100;
-    }
-
-    moneyMultiply(a, b) {
-        return Math.round((a * b) * 100) / 100;
-    }
-
-    moneySum(amounts) {
-        return Math.round(amounts.reduce((sum, amount) => sum + amount, 0) * 100) / 100;
-    }
 
     // Generic modal setup helper to eliminate duplication
     setupModal(config) {
@@ -277,8 +248,8 @@ class BudgetBuddy {
         }
 
         this.accounts = this.accounts.filter(a => a.id !== accountId);
-        this.filterAccounts = this.filterAccounts.filter(id => id !== accountId);
-        this.dashFilterAccounts = this.dashFilterAccounts.filter(id => id !== accountId);
+        this.uiState.setFilterAccounts(this.uiState.getFilterAccounts().filter(id => id !== accountId));
+        this.uiState.setDashFilterAccounts(this.uiState.getDashFilterAccounts().filter(id => id !== accountId));
         this.saveData('accounts', this.accounts);
         this.renderSidebarAccountList();
         this.updateDashboard();
@@ -519,8 +490,7 @@ class BudgetBuddy {
         }
 
         this.categories = this.categories.filter(c => c.id !== categoryId);
-        this.filterCategories = this.filterCategories.filter(id => id !== categoryId);
-        this.dashFilterCategories = this.dashFilterCategories.filter(id => id !== categoryId);
+        this.uiState.setDashFilterCategories(this.uiState.getDashFilterCategories().filter(id => id !== categoryId));
         this.saveData('categories', this.categories);
         this.renderCategories();
     }
@@ -542,8 +512,8 @@ class BudgetBuddy {
         // Populate modal
         document.getElementById('allocate-category-name').textContent = category.name;
         document.getElementById('allocate-month').textContent = `${monthNames[month]} ${year}`;
-        document.getElementById('allocate-available').textContent = this.formatCurrency(available);
-        document.getElementById('allocate-current').textContent = this.formatCurrency(currentAllocation);
+        document.getElementById('allocate-available').textContent = this.moneyService.formatCurrency(available);
+        document.getElementById('allocate-current').textContent = this.moneyService.formatCurrency(currentAllocation);
         document.getElementById('allocate-amount').value = currentAllocation || '';
 
         // Update quick action buttons
@@ -633,7 +603,7 @@ class BudgetBuddy {
         const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
                            'July', 'August', 'September', 'October', 'November', 'December'];
 
-        const message = `Quick Allocate for ${monthNames[month]} ${year}\n\nAvailable: ${this.formatCurrency(available)}\n\nOptions:\n1. Auto-allocate using monthly limits\n2. Distribute evenly across all categories\n3. Cancel`;
+        const message = `Quick Allocate for ${monthNames[month]} ${year}\n\nAvailable: ${this.moneyService.formatCurrency(available)}\n\nOptions:\n1. Auto-allocate using monthly limits\n2. Distribute evenly across all categories\n3. Cancel`;
 
         // Simple prompt for now - can be enhanced with a proper modal later
         const choice = prompt(message, '1');
@@ -669,7 +639,7 @@ class BudgetBuddy {
                 this.saveData('allocations', this.allocations);
                 this.invalidateTBBCache(year, month);
                 this.renderCategories();
-                alert(`Allocated ${this.formatCurrency(perCategory)} to each of ${this.categories.length} categories.`);
+                alert(`Allocated ${this.moneyService.formatCurrency(perCategory)} to each of ${this.categories.length} categories.`);
             } else {
                 alert('Not enough funds to distribute.');
             }
@@ -1322,7 +1292,7 @@ class BudgetBuddy {
     }
 
     shiftCategoryView(direction) {
-        this.categoryViewOffset += direction;
+        this.uiState.setCategoryViewOffset(this.uiState.getCategoryViewOffset() + direction);
         this.renderCategories();
     }
 
@@ -1343,7 +1313,7 @@ class BudgetBuddy {
         const now = new Date();
         const currentYear = now.getFullYear();
         const currentMonth = now.getMonth();
-        const centerTotal = currentYear * 12 + currentMonth + this.categoryViewOffset;
+        const centerTotal = currentYear * 12 + currentMonth + this.uiState.getCategoryViewOffset();
 
         // Compute 3 visible months: current, 2 future
         const months = [];
@@ -1357,7 +1327,7 @@ class BudgetBuddy {
 
         // Pre-compute spending map: key = "catId-year-month", value = net spent (expense +, income -)
         // Use cached version if available
-        if (!this.spendingMapCache) {
+        if (!this.uiState.getSpendingMapCache()) {
             const spentMap = {};
             this.transactions.forEach(t => {
                 if (!t.splits) return;
@@ -1370,27 +1340,27 @@ class BudgetBuddy {
                     spentMap[key] += t.type === 'expense' ? split.amount : -split.amount;
                 });
             });
-            this.spendingMapCache = spentMap;
+            this.uiState.setSpendingMapCache(spentMap);
         }
-        const spentMap = this.spendingMapCache;
+        const spentMap = this.uiState.getSpendingMapCache();
 
         // Helper: generate Budget / Spent / Balance cells for one month with click handler
         const genCellsWithClick = (categoryId, budget, spent, isCurrent, year, month) => {
             const balance = budget - spent;
             const cm = isCurrent ? ' current-month' : '';
-            const budgetCell = `<div class="category-cell category-budget-cell month-start${cm} editable-budget" onclick="app.openAllocateModal('${categoryId}', ${year}, ${month})" title="Click to allocate">${this.formatCurrency(budget)}</div>`;
+            const budgetCell = `<div class="category-cell category-budget-cell month-start${cm} editable-budget" onclick="app.openAllocateModal('${categoryId}', ${year}, ${month})" title="Click to allocate">${this.moneyService.formatCurrency(budget)}</div>`;
             return budgetCell +
-                   `<div class="category-cell category-spent-cell${spent < 0 ? ' income' : ''}${cm}">${this.formatCurrency(spent)}</div>` +
-                   `<div class="category-cell category-balance-cell${balance >= 0 ? ' positive' : ' negative'}${cm}">${this.formatCurrency(balance)}</div>`;
+                   `<div class="category-cell category-spent-cell${spent < 0 ? ' income' : ''}${cm}">${this.moneyService.formatCurrency(spent)}</div>` +
+                   `<div class="category-cell category-balance-cell${balance >= 0 ? ' positive' : ' negative'}${cm}">${this.moneyService.formatCurrency(balance)}</div>`;
         };
 
         // Helper: generate Budget / Spent / Balance cells for group rows (no click)
         const genCells = (budget, spent, isCurrent) => {
             const balance = budget - spent;
             const cm = isCurrent ? ' current-month' : '';
-            return `<div class="category-cell category-budget-cell month-start${cm}">${this.formatCurrency(budget)}</div>` +
-                   `<div class="category-cell category-spent-cell${spent < 0 ? ' income' : ''}${cm}">${this.formatCurrency(spent)}</div>` +
-                   `<div class="category-cell category-balance-cell${balance >= 0 ? ' positive' : ' negative'}${cm}">${this.formatCurrency(balance)}</div>`;
+            return `<div class="category-cell category-budget-cell month-start${cm}">${this.moneyService.formatCurrency(budget)}</div>` +
+                   `<div class="category-cell category-spent-cell${spent < 0 ? ' income' : ''}${cm}">${this.moneyService.formatCurrency(spent)}</div>` +
+                   `<div class="category-cell category-balance-cell${balance >= 0 ? ' positive' : ' negative'}${cm}">${this.moneyService.formatCurrency(balance)}</div>`;
         };
 
         // Header row 1: month names
@@ -1427,7 +1397,7 @@ class BudgetBuddy {
         // Helper: group summary row
         const renderGroupRow = (group, cats) => {
             const budget = cats.reduce((sum, cat) => sum + (cat.monthlyLimit || 0), 0);
-            const isCollapsed = this.collapsedGroups.has(group.id);
+            const isCollapsed = this.uiState.getCollapsedGroups().has(group.id);
             const chevron = `<span class="group-chevron${isCollapsed ? ' collapsed' : ''}"></span>`;
             let row = '<div class="category-row category-group-row">';
             row += `<div class="category-cell category-name-cell category-group-name" onclick="app.toggleGroupCollapse('${group.id}')" ondblclick="app.openGroupModal('${group.id}'); event.stopPropagation();">${chevron}${this.escapeHtml(group.name)}</div>`;
@@ -1449,7 +1419,7 @@ class BudgetBuddy {
         this.groups.forEach(group => {
             const groupCats = this.categories.filter(c => c.groupId === group.id);
             body += renderGroupRow(group, groupCats);
-            if (!this.collapsedGroups.has(group.id)) {
+            if (!this.uiState.getCollapsedGroups().has(group.id)) {
                 groupCats.forEach(cat => {
                     body += renderCatRow(cat, true, categoryCounter % 2 === 0);
                     categoryCounter++;
@@ -1512,12 +1482,12 @@ class BudgetBuddy {
             tbbBanners += `<div class="tbb-banner${isCurrent ? ' current-month-tbb' : ''}" onclick="app.openQuickAllocate(${m.year}, ${m.month})">
                 <div class="tbb-inner">
                     <div class="tbb-label">${monthNames[m.month]} ${m.year}</div>
-                    <div class="tbb-amount${available < 0 ? ' negative' : available === 0 ? ' zero' : ''}">${this.formatCurrency(available)}</div>
+                    <div class="tbb-amount${available < 0 ? ' negative' : available === 0 ? ' zero' : ''}">${this.moneyService.formatCurrency(available)}</div>
                     <div class="tbb-sublabel">Available to Budget</div>
                     <div class="tbb-details">
-                        <span class="tbb-detail-item">Total Income: ${this.formatCurrency(tbbBeforeMonth.totalIncome)}</span>
-                        <span class="tbb-detail-item">Total Allocated: ${this.formatCurrency(tbbBeforeMonth.totalAllocated)}</span>
-                        ${tbbBeforeMonth.totalOverspending > 0 ? `<span class="tbb-detail-item tbb-overspending" title="Total overspending from previous months">Overspent: ${this.formatCurrency(tbbBeforeMonth.totalOverspending)}</span>` : ''}
+                        <span class="tbb-detail-item">Total Income: ${this.moneyService.formatCurrency(tbbBeforeMonth.totalIncome)}</span>
+                        <span class="tbb-detail-item">Total Allocated: ${this.moneyService.formatCurrency(tbbBeforeMonth.totalAllocated)}</span>
+                        ${tbbBeforeMonth.totalOverspending > 0 ? `<span class="tbb-detail-item tbb-overspending" title="Total overspending from previous months">Overspent: ${this.moneyService.formatCurrency(tbbBeforeMonth.totalOverspending)}</span>` : ''}
                     </div>
                 </div>
             </div>`;
@@ -1607,7 +1577,7 @@ class BudgetBuddy {
         // Handle save and add another
         saveAndAddBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            this.saveAndAddAnother = true;
+            this.uiState.setSaveAndAddAnother(true);
             form.requestSubmit();
         });
 
@@ -1725,44 +1695,36 @@ class BudgetBuddy {
     }
 
     toggleSort(column) {
-        if (this.sortColumn === column) {
-            this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
-        } else {
-            this.sortColumn = column;
-            this.sortDirection = 'asc';
-        }
+        this.uiState.toggleSort(column);
         this.renderTransactions();
     }
 
     selectFilterAccount(accountId) {
-        this.filterAccounts = accountId ? [accountId] : [];
-        this.selectedTransactions.clear();
+        this.uiState.setFilterAccounts(accountId ? [accountId] : []);
+        this.uiState.clearSelectedTransactions();
         this.updateActionBar();
         this.renderTransactions();
     }
 
     toggleManageAccounts() {
-        this.manageAccountsMode = !this.manageAccountsMode;
+        this.uiState.toggleManageAccounts();
         this.renderSidebarAccountList();
     }
 
     toggleTransactionSelect(transactionId) {
-        if (this.selectedTransactions.has(transactionId)) {
-            this.selectedTransactions.delete(transactionId);
-        } else {
-            this.selectedTransactions.add(transactionId);
-        }
+        this.uiState.toggleTransactionSelect(transactionId);
         this.updateActionBar();
         this.renderTransactions();
     }
 
     selectAllTransactions() {
         const filteredTransactions = this.getFilteredTransactions();
-        const allSelected = filteredTransactions.every(t => this.selectedTransactions.has(t.id));
+        const selectedTransactions = this.uiState.getSelectedTransactions();
+        const allSelected = filteredTransactions.every(t => selectedTransactions.has(t.id));
         if (allSelected) {
-            filteredTransactions.forEach(t => this.selectedTransactions.delete(t.id));
+            filteredTransactions.forEach(t => selectedTransactions.delete(t.id));
         } else {
-            filteredTransactions.forEach(t => this.selectedTransactions.add(t.id));
+            filteredTransactions.forEach(t => selectedTransactions.add(t.id));
         }
         this.updateActionBar();
         this.renderTransactions();
@@ -1771,7 +1733,7 @@ class BudgetBuddy {
     updateActionBar() {
         const actionBar = document.getElementById('action-bar');
         const actionBarInfo = document.getElementById('action-bar-info');
-        const count = this.selectedTransactions.size;
+        const count = this.uiState.getSelectedTransactions().size;
         if (count > 0) {
             actionBar.classList.add('active');
             actionBarInfo.textContent = `${count} transaction${count !== 1 ? 's' : ''} selected`;
@@ -1781,7 +1743,7 @@ class BudgetBuddy {
     }
 
     deleteSelectedTransactions() {
-        const count = this.selectedTransactions.size;
+        const count = this.uiState.getSelectedTransactions().size;
         if (count === 0) return;
         if (!confirm(`Are you sure you want to delete ${count} transaction${count !== 1 ? 's' : ''}? This action cannot be undone.`)) {
             return;
@@ -1791,13 +1753,13 @@ class BudgetBuddy {
 
         // Reverse balance effects of deleted transactions
         this.transactions.forEach(t => {
-            if (this.selectedTransactions.has(t.id)) {
+            if (this.uiState.getSelectedTransactions().has(t.id)) {
                 this.applyTransactionEffect(t, -1);
                 const [tYear, tMonth] = t.date.split('-');
                 affectedMonths.add(`${tYear}-${parseInt(tMonth) - 1}`);
             }
         });
-        this.transactions = this.transactions.filter(t => !this.selectedTransactions.has(t.id));
+        this.transactions = this.transactions.filter(t => !this.uiState.getSelectedTransactions().has(t.id));
         this.saveData('transactions', this.transactions);
         this.saveData('accounts', this.accounts);
 
@@ -1808,9 +1770,9 @@ class BudgetBuddy {
         });
 
         // Invalidate spending map cache
-        this.spendingMapCache = null;
+        this.uiState.invalidateSpendingCache();
 
-        this.selectedTransactions.clear();
+        this.uiState.clearSelectedTransactions();
         this.updateActionBar();
         this.renderTransactions();
         this.updateDashboard();
@@ -1851,7 +1813,7 @@ class BudgetBuddy {
         }
 
         // Build confirmation message
-        const count = this.selectedTransactions.size;
+        const count = this.uiState.getSelectedTransactions().size;
         const changes = [];
         if (dateValue) changes.push(`Date \u2192 ${this.formatDate(dateValue)}`);
         if (accountValue) {
@@ -1865,7 +1827,7 @@ class BudgetBuddy {
 
         // Apply changes
         this.transactions.forEach(t => {
-            if (this.selectedTransactions.has(t.id)) {
+            if (this.uiState.getSelectedTransactions().has(t.id)) {
                 if (accountValue) {
                     // Reverse old effect, update account, reapply
                     this.applyTransactionEffect(t, -1);
@@ -1881,9 +1843,9 @@ class BudgetBuddy {
         if (accountValue) this.saveData('accounts', this.accounts);
 
         // Invalidate spending map cache if transactions modified
-        this.spendingMapCache = null;
+        this.uiState.invalidateSpendingCache();
 
-        this.selectedTransactions.clear();
+        this.uiState.clearSelectedTransactions();
         this.updateActionBar();
         this.closeBulkEditModal();
         this.renderTransactions();
@@ -1892,10 +1854,11 @@ class BudgetBuddy {
 
     getFilteredTransactions() {
         let filtered = this.transactions;
-        if (this.filterAccounts.length > 0) {
+        const filterAccounts = this.uiState.getFilterAccounts();
+        if (filterAccounts.length > 0) {
             filtered = filtered.filter(t =>
-                this.filterAccounts.includes(t.accountId) ||
-                (t.type === 'transfer' && this.filterAccounts.includes(t.toAccountId))
+                filterAccounts.includes(t.accountId) ||
+                (t.type === 'transfer' && filterAccounts.includes(t.toAccountId))
             );
         }
         return filtered;
@@ -1905,9 +1868,10 @@ class BudgetBuddy {
         const container = document.getElementById('sidebar-account-list');
         if (!container) return;
 
-        const activeAccountId = this.filterAccounts.length > 0 ? this.filterAccounts[0] : null;
+        const filterAccounts = this.uiState.getFilterAccounts();
+        const activeAccountId = filterAccounts.length > 0 ? filterAccounts[0] : null;
 
-        if (this.manageAccountsMode) {
+        if (this.uiState.isManageAccountsMode()) {
             const accountItems = this.accounts.map(account => `
                 <div class="sidebar-account-item manage-item">
                     <span>${this.escapeHtml(account.name)}</span>
@@ -1945,7 +1909,8 @@ class BudgetBuddy {
         const container = document.getElementById('mobile-account-filter');
         if (!container) return;
 
-        const activeAccountId = this.filterAccounts.length > 0 ? this.filterAccounts[0] : null;
+        const filterAccounts = this.uiState.getFilterAccounts();
+        const activeAccountId = filterAccounts.length > 0 ? filterAccounts[0] : null;
         const allClass = activeAccountId === null ? ' active' : '';
 
         const chips = this.accounts.map(account => {
@@ -1978,7 +1943,7 @@ class BudgetBuddy {
         // Apply sorting
         filteredTransactions = [...filteredTransactions].sort((a, b) => {
             let comparison = 0;
-            switch (this.sortColumn) {
+            switch (this.uiState.getSortColumn()) {
                 case 'date':
                     comparison = new Date(a.date) - new Date(b.date);
                     break;
@@ -2004,14 +1969,14 @@ class BudgetBuddy {
                     comparison = (a.type === 'income' ? a.totalAmount : 0) - (b.type === 'income' ? b.totalAmount : 0);
                     break;
             }
-            return this.sortDirection === 'asc' ? comparison : -comparison;
+            return this.uiState.getSortDirection() === 'asc' ? comparison : -comparison;
         });
 
-        const sortIcon = (column) => this.sortColumn === column
-            ? `<span class="sort-indicator">${this.sortDirection === 'asc' ? '▲' : '▼'}</span>`
+        const sortIcon = (column) => this.uiState.getSortColumn() === column
+            ? `<span class="sort-indicator">${this.uiState.getSortDirection() === 'asc' ? '▲' : '▼'}</span>`
             : '';
 
-        const allSelected = filteredTransactions.length > 0 && filteredTransactions.every(t => this.selectedTransactions.has(t.id));
+        const allSelected = filteredTransactions.length > 0 && filteredTransactions.every(t => this.uiState.getSelectedTransactions().has(t.id));
 
         const headerRow = `
             <div class="transaction-header-row">
@@ -2056,18 +2021,18 @@ class BudgetBuddy {
                         categoriesText = transaction.splits.map(split => {
                             const category = this.categories.find(c => c.id === split.categoryId);
                             const categoryName = category ? category.name : 'Uncategorized';
-                            return `<span class="transaction-category-item">${this.escapeHtml(categoryName)} (${this.formatCurrency(split.amount)})</span>`;
+                            return `<span class="transaction-category-item">${this.escapeHtml(categoryName)} (${this.moneyService.formatCurrency(split.amount)})</span>`;
                         }).join('');
                     }
                 }
 
-                const isSelected = this.selectedTransactions.has(transaction.id);
+                const isSelected = this.uiState.getSelectedTransactions().has(transaction.id);
                 const editAttr = `onclick="app.editTransactionInline('${transaction.id}')" title="Click to edit"`;
                 const expenseCell = (transaction.type === 'expense' || transaction.type === 'transfer')
-                    ? `<div class="transaction-amount ${transaction.type} editable" ${editAttr}>${this.formatCurrency(transaction.totalAmount)}</div>`
+                    ? `<div class="transaction-amount ${transaction.type} editable" ${editAttr}>${this.moneyService.formatCurrency(transaction.totalAmount)}</div>`
                     : '<div class="transaction-amount expense"></div>';
                 const incomeCell = transaction.type === 'income'
-                    ? `<div class="transaction-amount income editable" ${editAttr}>${this.formatCurrency(transaction.totalAmount)}</div>`
+                    ? `<div class="transaction-amount income editable" ${editAttr}>${this.moneyService.formatCurrency(transaction.totalAmount)}</div>`
                     : '<div class="transaction-amount income"></div>';
                 return `
                     <div class="transaction-row ${transaction.type} ${isSelected ? 'selected' : ''}" data-transaction-id="${transaction.id}">
@@ -2107,12 +2072,17 @@ class BudgetBuddy {
             document.getElementById('splits-section').style.display = 'none';
             document.getElementById('single-category-section').querySelector('select').removeAttribute('required');
         } else {
-            document.getElementById('single-category-section').style.display = 'block';
+            // Check if we're currently in split mode
             const catSelect = document.getElementById('transaction-category');
-            if (catSelect.value === '__split__') {
-                catSelect.value = '';
+            const splitsSection = document.getElementById('splits-section');
+            const isSplitMode = catSelect.value === '__split__' && splitsSection.style.display === 'block';
+
+            if (!isSplitMode) {
+                // Only show single category section if NOT in split mode
+                document.getElementById('single-category-section').style.display = 'block';
+                catSelect.setAttribute('required', 'required');
             }
-            catSelect.setAttribute('required', 'required');
+            // If in split mode, leave everything as is (split section visible, main category = '__split__')
         }
     }
 
@@ -2127,7 +2097,7 @@ class BudgetBuddy {
         const singleCategorySection = document.getElementById('single-category-section');
 
         this.currentTransactionId = transactionId;
-        this.splitCounter = 0;
+        this.uiState.resetSplitCounter();
 
         // Populate accounts dropdown
         accountSelect.innerHTML = '<option value="">Select account...</option>';
@@ -2238,13 +2208,13 @@ class BudgetBuddy {
         categorySearchInput.classList.remove('has-value');
 
         this.currentTransactionId = null;
-        this.splitCounter = 0;
-        this.saveAndAddAnother = false;
+        this.uiState.resetSplitCounter();
+        this.uiState.setSaveAndAddAnother(false);
     }
 
     addSplitRow(categoryId = '', amount = '') {
         const container = document.getElementById('splits-container');
-        const splitId = `split-${this.splitCounter++}`;
+        const splitId = `split-${this.uiState.incrementSplitCounter()}`;
         const searchId = `${splitId}-search`;
         const hiddenId = `${splitId}-category`;
         const dropdownId = `${splitId}-dropdown`;
@@ -2372,7 +2342,7 @@ class BudgetBuddy {
         const totalElement = document.getElementById('splits-total-amount');
         const differenceElement = document.getElementById('splits-difference');
 
-        totalElement.textContent = this.formatCurrency(splitsTotal);
+        totalElement.textContent = this.moneyService.formatCurrency(splitsTotal);
 
         const difference = totalAmount - splitsTotal;
         differenceElement.className = 'splits-difference';
@@ -2380,10 +2350,10 @@ class BudgetBuddy {
         if (Math.abs(difference) < 0.01) {
             differenceElement.textContent = '';
         } else if (difference > 0) {
-            differenceElement.textContent = `(${this.formatCurrency(difference)} remaining)`;
+            differenceElement.textContent = `(${this.moneyService.formatCurrency(difference)} remaining)`;
             differenceElement.classList.add('under');
         } else {
-            differenceElement.textContent = `(${this.formatCurrency(Math.abs(difference))} over)`;
+            differenceElement.textContent = `(${this.moneyService.formatCurrency(Math.abs(difference))} over)`;
             differenceElement.classList.add('over');
         }
     }
@@ -2392,17 +2362,17 @@ class BudgetBuddy {
         const fromAccount = this.accounts.find(a => a.id === transaction.accountId);
         if (!fromAccount) return;
 
-        const amount = this.moneyMultiply(sign, transaction.totalAmount);
+        const amount = this.moneyService.moneyMultiply(sign, transaction.totalAmount);
 
         if (transaction.type === 'income') {
-            fromAccount.balance = this.moneyAdd(fromAccount.balance, amount);
+            fromAccount.balance = this.moneyService.moneyAdd(fromAccount.balance, amount);
         } else if (transaction.type === 'expense') {
-            fromAccount.balance = this.moneySubtract(fromAccount.balance, amount);
+            fromAccount.balance = this.moneyService.moneySubtract(fromAccount.balance, amount);
         } else if (transaction.type === 'transfer') {
-            fromAccount.balance = this.moneySubtract(fromAccount.balance, amount);
+            fromAccount.balance = this.moneyService.moneySubtract(fromAccount.balance, amount);
             const toAccount = this.accounts.find(a => a.id === transaction.toAccountId);
             if (toAccount) {
-                toAccount.balance = this.moneyAdd(toAccount.balance, amount);
+                toAccount.balance = this.moneyService.moneyAdd(toAccount.balance, amount);
             }
         }
     }
@@ -2448,8 +2418,8 @@ class BudgetBuddy {
                 alert('Source and destination accounts must be different');
                 return null;
             }
-        } else if (splitsSection.style.display !== 'none' && categorySelect.value === '__split__') {
-            // Collect splits
+        } else if (categorySelect.value === '__split__') {
+            // Split transaction - collect all splits
             const splitElements = document.querySelectorAll('.split-item');
             let splitsTotal = 0;
 
@@ -2476,7 +2446,7 @@ class BudgetBuddy {
         } else {
             // Single category
             const categoryId = categorySelect.value;
-            if (!categoryId || categoryId === '__split__') {
+            if (!categoryId) {
                 alert('Please select a category');
                 return null;
             }
@@ -2561,17 +2531,17 @@ class BudgetBuddy {
         this.invalidateTBBCache(parseInt(tYear), parseInt(tMonth) - 1);
 
         // Invalidate spending map cache
-        this.spendingMapCache = null;
+        this.uiState.invalidateSpendingCache();
 
         this.renderTransactions();
         this.updateDashboard();
 
         // Handle save and add another
-        if (this.saveAndAddAnother && !this.currentTransactionId) {
+        if (this.uiState.getSaveAndAddAnother() && !this.currentTransactionId) {
             // Keep modal open, reset form with preserved account
             const savedAccount = accountId;
             this.currentTransactionId = null;
-            this.splitCounter = 0;
+            this.uiState.resetSplitCounter();
 
             // Reset form
             document.getElementById('transaction-form').reset();
@@ -2604,7 +2574,7 @@ class BudgetBuddy {
             categorySearchInput.classList.remove('has-value');
 
             // Reset the flag
-            this.saveAndAddAnother = false;
+            this.uiState.setSaveAndAddAnother(false);
 
             // Focus on payee field for quick entry
             document.getElementById('transaction-payee').focus();
@@ -2639,17 +2609,12 @@ class BudgetBuddy {
     }
 
     updateNetWorth() {
-        const total = this.moneySum(this.accounts.map(a => a.balance));
+        const total = this.moneyService.moneySum(this.accounts.map(a => a.balance));
         const el = document.getElementById('sidebar-net-worth-value');
         if (el) {
-            el.textContent = this.formatCurrency(total);
+            el.textContent = this.moneyService.formatCurrency(total);
             el.classList.toggle('negative', total < 0);
         }
-    }
-
-    // Helper to generate simple hash for change detection
-    simpleHash(data) {
-        return JSON.stringify(data).length + '-' + JSON.stringify(data).slice(0, 100);
     }
 
     // Dashboard with smart re-rendering
@@ -2658,27 +2623,27 @@ class BudgetBuddy {
         this.updateNetWorth();
 
         // Check if accounts changed
-        const accountsHash = this.simpleHash(this.accounts);
-        const accountsChanged = accountsHash !== this.lastAccountsHash;
+        const accountsHash = this.uiState.simpleHash(this.accounts);
+        const accountsChanged = accountsHash !== this.uiState.getLastAccountsHash();
         if (accountsChanged) {
-            this.lastAccountsHash = accountsHash;
+            this.uiState.setLastAccountsHash(accountsHash);
             this.updateAccountsSummary();
         }
 
         // Check if transactions or filters changed
-        const transactionsHash = this.simpleHash(this.transactions);
+        const transactionsHash = this.uiState.simpleHash(this.transactions);
         const filterState = JSON.stringify({
-            accounts: this.dashFilterAccounts,
-            categories: this.dashFilterCategories,
-            dateRange: this.dashFilterDateRange
+            accounts: this.uiState.getDashFilterAccounts(),
+            categories: this.uiState.getDashFilterCategories(),
+            dateRange: this.uiState.getDashFilterDateRange()
         });
-        const transactionsChanged = transactionsHash !== this.lastTransactionsHash;
-        const filtersChanged = filterState !== this.lastDashFilterState;
+        const transactionsChanged = transactionsHash !== this.uiState.getLastTransactionsHash();
+        const filtersChanged = filterState !== this.uiState.getLastDashFilterState();
 
         if (transactionsChanged || filtersChanged) {
-            this.lastTransactionsHash = transactionsHash;
-            this.lastDashFilterState = filterState;
-            this.spendingMapCache = null; // Invalidate spending cache
+            this.uiState.setLastTransactionsHash(transactionsHash);
+            this.uiState.setLastDashFilterState(filterState);
+            this.uiState.invalidateSpendingCache();
             this.renderDashboardSidebar();
             this.renderSpendingChart();
             this.renderTrendChart();
@@ -2709,7 +2674,7 @@ class BudgetBuddy {
                 incomeAmounts.push(t.totalAmount);
             }
         });
-        const totalIncome = this.moneySum(incomeAmounts);
+        const totalIncome = this.moneyService.moneySum(incomeAmounts);
 
         // Calculate total allocated up to and including this month
         const allocatedAmounts = [];
@@ -2721,7 +2686,7 @@ class BudgetBuddy {
                 allocatedAmounts.push(this.allocations[key]);
             }
         });
-        const totalAllocated = this.moneySum(allocatedAmounts);
+        const totalAllocated = this.moneyService.moneySum(allocatedAmounts);
 
         // Calculate total overspending up to this month
         let totalOverspending = 0;
@@ -2824,7 +2789,7 @@ class BudgetBuddy {
         }
 
         const summary = this.accounts.map(account => {
-            const balance = this.formatCurrency(account.balance);
+            const balance = this.moneyService.formatCurrency(account.balance);
             return `
                 <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
                     <span>${this.escapeHtml(account.name)}</span>
@@ -2833,12 +2798,12 @@ class BudgetBuddy {
             `;
         }).join('');
 
-        const total = this.moneySum(this.accounts.map(a => a.balance));
+        const total = this.moneyService.moneySum(this.accounts.map(a => a.balance));
 
         container.innerHTML = summary + `
             <div class="accounts-summary-total">
                 <span>Total Balance</span>
-                <strong>${this.formatCurrency(total)}</strong>
+                <strong>${this.moneyService.formatCurrency(total)}</strong>
             </div>
         `;
     }
@@ -2862,8 +2827,8 @@ class BudgetBuddy {
             return;
         }
 
-        const visible = this.dashFilterAccounts.length > 0
-            ? this.accounts.filter(a => this.dashFilterAccounts.includes(a.id))
+        const visible = this.uiState.getDashFilterAccounts().length > 0
+            ? this.accounts.filter(a => this.uiState.getDashFilterAccounts().includes(a.id))
             : this.accounts;
 
         if (visible.length === 0) {
@@ -2886,7 +2851,7 @@ class BudgetBuddy {
                 <div class="chart-bar-track">
                     <div class="chart-bar-fill${debt ? ' debt' : ''}" style="width: ${widthPct}%; background-color: ${color}"></div>
                 </div>
-                <div class="chart-bar-value${debt ? ' debt' : ''}">${this.formatCurrency(account.balance)}</div>
+                <div class="chart-bar-value${debt ? ' debt' : ''}">${this.moneyService.formatCurrency(account.balance)}</div>
             </div>`;
         }).join('');
     }
@@ -2907,7 +2872,7 @@ class BudgetBuddy {
         const { start, end } = this.getDashDateRange();
         const filtered = this.transactions.filter(t =>
             t.type === 'expense' &&
-            (this.dashFilterAccounts.length === 0 || this.dashFilterAccounts.includes(t.accountId)) &&
+            (this.uiState.getDashFilterAccounts().length === 0 || this.uiState.getDashFilterAccounts().includes(t.accountId)) &&
             t.date >= start && t.date <= end
         );
 
@@ -2916,7 +2881,7 @@ class BudgetBuddy {
         filtered.forEach(t => {
             if (!t.splits) return;
             t.splits.forEach(split => {
-                if (this.dashFilterCategories.length > 0 && !this.dashFilterCategories.includes(split.categoryId)) return;
+                if (this.uiState.getDashFilterCategories().length > 0 && !this.uiState.getDashFilterCategories().includes(split.categoryId)) return;
                 totals[split.categoryId] = (totals[split.categoryId] || 0) + split.amount;
             });
         });
@@ -2989,12 +2954,12 @@ class BudgetBuddy {
             return `<div class="legend-item">
                 <span class="legend-dot" style="background-color: ${item.color}"></span>
                 <span class="legend-name">${this.escapeHtml(item.name)}</span>
-                <span class="legend-value">${this.formatCurrency(item.amount)}</span>
+                <span class="legend-value">${this.moneyService.formatCurrency(item.amount)}</span>
                 <span class="legend-percent">${pct}%</span>
             </div>`;
         }).join('');
 
-        totalContainer.innerHTML = `Total Spending: <strong>${this.formatCurrency(total)}</strong>`;
+        totalContainer.innerHTML = `Total Spending: <strong>${this.moneyService.formatCurrency(total)}</strong>`;
     }
 
     getDashDateRange() {
@@ -3005,7 +2970,7 @@ class BudgetBuddy {
         const fmt = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 
         let start, end;
-        switch (this.dashFilterDateRange) {
+        switch (this.uiState.getDashFilterDateRange()) {
             case 'last-month':
                 start = new Date(y, m - 1, 1);
                 end   = new Date(y, m, 0);
@@ -3041,27 +3006,27 @@ class BudgetBuddy {
         ];
 
         const dateButtons = dateOptions.map(([val, label]) =>
-            `<button class="sidebar-type-btn${this.dashFilterDateRange === val ? ' active' : ''}" onclick="app.setDashFilterDateRange('${val}')">${label}</button>`
+            `<button class="sidebar-type-btn${this.uiState.getDashFilterDateRange() === val ? ' active' : ''}" onclick="app.setDashFilterDateRange('${val}')">${label}</button>`
         ).join('');
 
         const accountItems = this.accounts.map(account =>
-            `<button class="sidebar-filter-item${this.dashFilterAccounts.includes(account.id) ? ' active' : ''}" onclick="app.toggleDashFilterAccount('${account.id}')">${this.escapeHtml(account.name)}</button>`
+            `<button class="sidebar-filter-item${this.uiState.getDashFilterAccounts().includes(account.id) ? ' active' : ''}" onclick="app.toggleDashFilterAccount('${account.id}')">${this.escapeHtml(account.name)}</button>`
         ).join('');
 
         const categoryItems = this.categories.map(cat =>
-            `<button class="sidebar-filter-item${this.dashFilterCategories.includes(cat.id) ? ' active' : ''}" onclick="app.toggleDashFilterCategory('${cat.id}')">${this.escapeHtml(cat.name)}</button>`
+            `<button class="sidebar-filter-item${this.uiState.getDashFilterCategories().includes(cat.id) ? ' active' : ''}" onclick="app.toggleDashFilterCategory('${cat.id}')">${this.escapeHtml(cat.name)}</button>`
         ).join('');
 
         sidebar.innerHTML = `
-            <div class="sidebar-section${this.dashExpandedSections.has('date') ? ' expanded' : ''}">
+            <div class="sidebar-section${this.uiState.getDashExpandedSections().has('date') ? ' expanded' : ''}">
                 <div class="sidebar-section-title" onclick="app.toggleDashSection('date')">Date Range</div>
                 <div class="sidebar-type-buttons">${dateButtons}</div>
             </div>
-            <div class="sidebar-section${this.dashExpandedSections.has('account') ? ' expanded' : ''}">
+            <div class="sidebar-section${this.uiState.getDashExpandedSections().has('account') ? ' expanded' : ''}">
                 <div class="sidebar-section-title" onclick="app.toggleDashSection('account')">Account</div>
                 <div class="sidebar-type-buttons">${accountItems || '<div class="sidebar-empty">No accounts yet</div>'}</div>
             </div>
-            <div class="sidebar-section${this.dashExpandedSections.has('category') ? ' expanded' : ''}">
+            <div class="sidebar-section${this.uiState.getDashExpandedSections().has('category') ? ' expanded' : ''}">
                 <div class="sidebar-section-title" onclick="app.toggleDashSection('category')">Category</div>
                 <div class="sidebar-type-buttons">${categoryItems || '<div class="sidebar-empty">No categories yet</div>'}</div>
             </div>
@@ -3069,45 +3034,41 @@ class BudgetBuddy {
     }
 
     toggleDashFilterAccount(accountId) {
-        const index = this.dashFilterAccounts.indexOf(accountId);
+        const currentFilters = this.uiState.getDashFilterAccounts();
+        const index = currentFilters.indexOf(accountId);
         if (index === -1) {
-            this.dashFilterAccounts.push(accountId);
+            currentFilters.push(accountId);
         } else {
-            this.dashFilterAccounts.splice(index, 1);
+            currentFilters.splice(index, 1);
         }
+        this.uiState.setDashFilterAccounts(currentFilters);
         this.updateDashboard();
     }
 
     toggleDashFilterCategory(categoryId) {
-        const index = this.dashFilterCategories.indexOf(categoryId);
+        const currentFilters = this.uiState.getDashFilterCategories();
+        const index = currentFilters.indexOf(categoryId);
         if (index === -1) {
-            this.dashFilterCategories.push(categoryId);
+            currentFilters.push(categoryId);
         } else {
-            this.dashFilterCategories.splice(index, 1);
+            currentFilters.splice(index, 1);
         }
+        this.uiState.setDashFilterCategories(currentFilters);
         this.updateDashboard();
     }
 
     setDashFilterDateRange(range) {
-        this.dashFilterDateRange = range;
+        this.uiState.setDashFilterDateRange(range);
         this.updateDashboard();
     }
 
     toggleDashSection(name) {
-        if (this.dashExpandedSections.has(name)) {
-            this.dashExpandedSections.delete(name);
-        } else {
-            this.dashExpandedSections.add(name);
-        }
+        this.uiState.toggleDashSection(name);
         this.renderDashboardSidebar();
     }
 
     toggleGroupCollapse(groupId) {
-        if (this.collapsedGroups.has(groupId)) {
-            this.collapsedGroups.delete(groupId);
-        } else {
-            this.collapsedGroups.add(groupId);
-        }
+        this.uiState.toggleGroupCollapse(groupId);
         this.renderCategories();
     }
 
@@ -3117,18 +3078,18 @@ class BudgetBuddy {
 
         // Only expense/income toggles as inline controls
         controlsContainer.innerHTML =
-            `<button class="trend-toggle-btn${this.trendShowExpense ? ' active expense-btn' : ''}" onclick="app.toggleTrendExpense()">Expenses</button>` +
-            `<button class="trend-toggle-btn${this.trendShowIncome ? ' active income-btn' : ''}" onclick="app.toggleTrendIncome()">Income</button>`;
+            `<button class="trend-toggle-btn${this.uiState.getTrendShowExpense() ? ' active expense-btn' : ''}" onclick="app.toggleTrendExpense()">Expenses</button>` +
+            `<button class="trend-toggle-btn${this.uiState.getTrendShowIncome() ? ' active income-btn' : ''}" onclick="app.toggleTrendIncome()">Income</button>`;
 
         const pad2 = n => String(n).padStart(2, '0');
         let { start, end } = this.getDashDateRange();
 
         // "All time" bounds: cap end to current month, start to earliest matching transaction
-        if (this.dashFilterDateRange === 'all-time') {
+        if (this.uiState.getDashFilterDateRange() === 'all-time') {
             const now = new Date();
             end = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate())}`;
             const relevant = this.transactions.filter(t => {
-                if (this.dashFilterAccounts.length > 0 && !this.dashFilterAccounts.includes(t.accountId)) return false;
+                if (this.uiState.getDashFilterAccounts().length > 0 && !this.uiState.getDashFilterAccounts().includes(t.accountId)) return false;
                 return t.type === 'expense' || t.type === 'income';
             });
             start = relevant.length > 0
@@ -3151,14 +3112,14 @@ class BudgetBuddy {
         days.forEach(d => { expenseByDay[d] = 0; incomeByDay[d] = 0; });
 
         this.transactions.forEach(t => {
-            if (this.dashFilterAccounts.length > 0 && !this.dashFilterAccounts.includes(t.accountId)) return;
+            if (this.uiState.getDashFilterAccounts().length > 0 && !this.uiState.getDashFilterAccounts().includes(t.accountId)) return;
             if (t.type !== 'expense' && t.type !== 'income') return;
             if (!(t.date in expenseByDay)) return;
 
             let amount;
-            if (this.dashFilterCategories.length > 0) {
+            if (this.uiState.getDashFilterCategories().length > 0) {
                 amount = (t.splits || [])
-                    .filter(s => this.dashFilterCategories.includes(s.categoryId))
+                    .filter(s => this.uiState.getDashFilterCategories().includes(s.categoryId))
                     .reduce((sum, s) => sum + s.amount, 0);
             } else {
                 amount = t.totalAmount;
@@ -3172,8 +3133,8 @@ class BudgetBuddy {
         const incomeValues = days.map(d => Math.round(incomeByDay[d] * 100) / 100);
 
         const allValues = [
-            ...(this.trendShowExpense ? expenseValues : []),
-            ...(this.trendShowIncome ? incomeValues : []),
+            ...(this.uiState.getTrendShowExpense() ? expenseValues : []),
+            ...(this.uiState.getTrendShowIncome() ? incomeValues : []),
             0
         ];
         const maxVal = Math.max(...allValues);
@@ -3195,7 +3156,7 @@ class BudgetBuddy {
         const chartW = cssW - pad.left - pad.right;
         const chartH = cssH - pad.top - pad.bottom;
 
-        if (days.length === 0 || (!this.trendShowExpense && !this.trendShowIncome)) {
+        if (days.length === 0 || (!this.uiState.getTrendShowExpense() && !this.uiState.getTrendShowIncome())) {
             ctx.fillStyle = '#9CA3AF';
             ctx.font = '14px Inter, sans-serif';
             ctx.textAlign = 'center';
@@ -3269,8 +3230,8 @@ class BudgetBuddy {
         };
 
         // Draw expense first (behind), then income (on top)
-        if (this.trendShowExpense) drawLine(expenseValues, '#DC2626', 'rgba(220,38,38,0.08)');
-        if (this.trendShowIncome)  drawLine(incomeValues,  '#059669', 'rgba(5,150,105,0.08)');
+        if (this.uiState.getTrendShowExpense()) drawLine(expenseValues, '#DC2626', 'rgba(220,38,38,0.08)');
+        if (this.uiState.getTrendShowIncome())  drawLine(incomeValues,  '#059669', 'rgba(5,150,105,0.08)');
     }
 
     // Returns [{i, label}, …] for X-axis tick labels, auto-spaced to avoid overlap
@@ -3335,12 +3296,12 @@ class BudgetBuddy {
     }
 
     toggleTrendExpense() {
-        this.trendShowExpense = !this.trendShowExpense;
+        this.uiState.toggleTrendExpense();
         this.renderTrendChart();
     }
 
     toggleTrendIncome() {
-        this.trendShowIncome = !this.trendShowIncome;
+        this.uiState.toggleTrendIncome();
         this.renderTrendChart();
     }
 
@@ -3352,13 +3313,6 @@ class BudgetBuddy {
     }
 
     // Utility Functions
-    formatCurrency(amount) {
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: 'USD'
-        }).format(amount);
-    }
-
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
