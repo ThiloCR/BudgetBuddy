@@ -29,6 +29,7 @@ class BudgetBuddy {
         this.collapsedGroups = new Set();
         this.trendShowExpense = true;
         this.trendShowIncome = true;
+        this.tbbCache = {}; // Cache for TBB calculations: key = 'year-month', value = {totalIncome, totalAllocated, totalOverspending, available}
 
         this.init();
     }
@@ -42,8 +43,29 @@ class BudgetBuddy {
         this.setupAllocationModal();
         this.setupDataManagement();
         this.setupSettingsNav();
+        this.setupGlobalDropdownHandler();
         this.renderCategories();
         this.updateDashboard();
+    }
+
+    // Global handler for closing dropdowns when clicking outside (prevents memory leaks)
+    setupGlobalDropdownHandler() {
+        document.addEventListener('click', (e) => {
+            // Find all active dropdowns
+            const activeDropdowns = document.querySelectorAll('.searchable-select-dropdown.active');
+
+            activeDropdowns.forEach(dropdown => {
+                const wrapper = dropdown.closest('.searchable-select-wrapper');
+                if (!wrapper) return;
+
+                const searchInput = wrapper.querySelector('.searchable-select-input');
+
+                // Close dropdown if click is outside both input and dropdown
+                if (searchInput && !searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+                    dropdown.classList.remove('active');
+                }
+            });
+        });
     }
 
     // Data Management
@@ -58,6 +80,24 @@ class BudgetBuddy {
 
     generateId() {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    }
+
+    // Money helper functions to handle floating-point precision issues
+    // Always round to 2 decimal places to prevent penny discrepancies
+    moneyAdd(a, b) {
+        return Math.round((a + b) * 100) / 100;
+    }
+
+    moneySubtract(a, b) {
+        return Math.round((a - b) * 100) / 100;
+    }
+
+    moneyMultiply(a, b) {
+        return Math.round((a * b) * 100) / 100;
+    }
+
+    moneySum(amounts) {
+        return Math.round(amounts.reduce((sum, amount) => sum + amount, 0) * 100) / 100;
     }
 
     // Navigation
@@ -1613,12 +1653,7 @@ class BudgetBuddy {
             this.updateSearchableDropdown(fieldId, e.target.value);
         });
 
-        // Hide dropdown when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
-                dropdown.classList.remove('active');
-            }
-        });
+        // Note: Dropdown closing on outside click is handled by global handler in setupGlobalDropdownHandler()
 
         // Handle keyboard navigation
         searchInput.addEventListener('keydown', (e) => {
@@ -2261,12 +2296,7 @@ class BudgetBuddy {
             this.updateSplitDropdown(dropdownId, hiddenId, e.target.value);
         });
 
-        // Hide dropdown when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
-                dropdown.classList.remove('active');
-            }
-        });
+        // Note: Dropdown closing on outside click is handled by global handler in setupGlobalDropdownHandler()
 
         // Handle keyboard navigation
         searchInput.addEventListener('keydown', (e) => {
@@ -2357,19 +2387,19 @@ class BudgetBuddy {
         const fromAccount = this.accounts.find(a => a.id === transaction.accountId);
         if (!fromAccount) return;
 
+        const amount = this.moneyMultiply(sign, transaction.totalAmount);
+
         if (transaction.type === 'income') {
-            fromAccount.balance += sign * transaction.totalAmount;
+            fromAccount.balance = this.moneyAdd(fromAccount.balance, amount);
         } else if (transaction.type === 'expense') {
-            fromAccount.balance -= sign * transaction.totalAmount;
+            fromAccount.balance = this.moneySubtract(fromAccount.balance, amount);
         } else if (transaction.type === 'transfer') {
-            fromAccount.balance -= sign * transaction.totalAmount;
+            fromAccount.balance = this.moneySubtract(fromAccount.balance, amount);
             const toAccount = this.accounts.find(a => a.id === transaction.toAccountId);
             if (toAccount) {
-                toAccount.balance += sign * transaction.totalAmount;
-                toAccount.balance = Math.round(toAccount.balance * 100) / 100;
+                toAccount.balance = this.moneyAdd(toAccount.balance, amount);
             }
         }
-        fromAccount.balance = Math.round(fromAccount.balance * 100) / 100;
     }
 
     saveTransaction() {
@@ -2444,26 +2474,31 @@ class BudgetBuddy {
         if (this.currentTransactionId) {
             // Update existing transaction
             const transactionIndex = this.transactions.findIndex(t => t.id === this.currentTransactionId);
-            if (transactionIndex !== -1) {
-                // Reverse the old transaction's effect on balances
-                this.applyTransactionEffect(this.transactions[transactionIndex], -1);
-
-                this.transactions[transactionIndex] = {
-                    ...this.transactions[transactionIndex],
-                    date,
-                    type,
-                    payee: type === 'transfer' ? '' : payee,
-                    accountId,
-                    totalAmount,
-                    notes,
-                    splits,
-                    toAccountId,
-                    updatedAt: new Date().toISOString()
-                };
-
-                // Apply the updated transaction's effect
-                this.applyTransactionEffect(this.transactions[transactionIndex], 1);
+            if (transactionIndex === -1) {
+                alert('Error: Transaction not found. It may have been deleted.');
+                this.closeTransactionModal();
+                this.renderTransactions();
+                return;
             }
+
+            // Reverse the old transaction's effect on balances
+            this.applyTransactionEffect(this.transactions[transactionIndex], -1);
+
+            this.transactions[transactionIndex] = {
+                ...this.transactions[transactionIndex],
+                date,
+                type,
+                payee: type === 'transfer' ? '' : payee,
+                accountId,
+                totalAmount,
+                notes,
+                splits,
+                toAccountId,
+                updatedAt: new Date().toISOString()
+            };
+
+            // Apply the updated transaction's effect
+            this.applyTransactionEffect(this.transactions[transactionIndex], 1);
         } else {
             // Create new transaction
             const newTransaction = {
@@ -2568,7 +2603,7 @@ class BudgetBuddy {
     }
 
     updateNetWorth() {
-        const total = this.accounts.reduce((sum, a) => sum + a.balance, 0);
+        const total = this.moneySum(this.accounts.map(a => a.balance));
         const el = document.getElementById('sidebar-net-worth-value');
         if (el) {
             el.textContent = this.formatCurrency(total);
@@ -2588,30 +2623,40 @@ class BudgetBuddy {
     /**
      * Calculate global TBB up to (and including) a specific month
      * True YNAB model: all income received - all allocations made - overspending
+     * Results are cached for performance
      */
     calculateGlobalTBB(upToYear, upToMonth) {
+        const cacheKey = `${upToYear}-${upToMonth}`;
+
+        // Return cached result if available
+        if (this.tbbCache[cacheKey]) {
+            return this.tbbCache[cacheKey];
+        }
+
         // Calculate total income received up to and including this month
-        let totalIncome = 0;
+        const incomeAmounts = [];
         this.transactions.forEach(t => {
             if (t.type !== 'income') return;
             const [tYear, tMonthStr] = t.date.split('-');
             const tDate = parseInt(tYear) * 12 + parseInt(tMonthStr) - 1;
             const upToDate = upToYear * 12 + upToMonth;
             if (tDate <= upToDate) {
-                totalIncome += t.totalAmount;
+                incomeAmounts.push(t.totalAmount);
             }
         });
+        const totalIncome = this.moneySum(incomeAmounts);
 
         // Calculate total allocated up to and including this month
-        let totalAllocated = 0;
+        const allocatedAmounts = [];
         Object.keys(this.allocations).forEach(key => {
             const [catId, year, month] = key.split('-');
             const allocDate = parseInt(year) * 12 + parseInt(month);
             const upToDate = upToYear * 12 + upToMonth;
             if (allocDate <= upToDate) {
-                totalAllocated += this.allocations[key];
+                allocatedAmounts.push(this.allocations[key]);
             }
         });
+        const totalAllocated = this.moneySum(allocatedAmounts);
 
         // Calculate total overspending up to this month
         let totalOverspending = 0;
@@ -2639,12 +2684,17 @@ class BudgetBuddy {
             }
         });
 
-        return {
+        const result = {
             totalIncome,
             totalAllocated,
             totalOverspending,
             available: totalIncome - totalAllocated - totalOverspending
         };
+
+        // Cache the result
+        this.tbbCache[cacheKey] = result;
+
+        return result;
     }
 
     /**
@@ -2683,11 +2733,21 @@ class BudgetBuddy {
     }
 
     /**
-     * Invalidate TBB cache - no longer needed with global TBB model
-     * Kept for compatibility but does nothing
+     * Invalidate TBB cache for a specific month and all subsequent months
+     * Since TBB is cumulative, changing month X affects all months >= X
      */
     invalidateTBBCache(year, month) {
-        // Global TBB is calculated on-demand, no cache to invalidate
+        const changedDate = year * 12 + month;
+
+        // Remove all cache entries for months >= the changed month
+        Object.keys(this.tbbCache).forEach(cacheKey => {
+            const [cacheYear, cacheMonth] = cacheKey.split('-').map(n => parseInt(n));
+            const cacheDate = cacheYear * 12 + cacheMonth;
+
+            if (cacheDate >= changedDate) {
+                delete this.tbbCache[cacheKey];
+            }
+        });
     }
 
     updateAccountsSummary() {
@@ -2708,7 +2768,7 @@ class BudgetBuddy {
             `;
         }).join('');
 
-        const total = this.accounts.reduce((sum, account) => sum + account.balance, 0);
+        const total = this.moneySum(this.accounts.map(a => a.balance));
 
         container.innerHTML = summary + `
             <div class="accounts-summary-total">
