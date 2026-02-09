@@ -2407,21 +2407,34 @@ class BudgetBuddy {
         }
     }
 
-    saveTransaction() {
-        const date = document.getElementById('transaction-date').value;
-        const type = document.getElementById('transaction-type').value;
-        const payee = document.getElementById('transaction-payee').value.trim();
-        const accountId = document.getElementById('transaction-account').value;
-        const totalAmount = parseFloat(document.getElementById('transaction-amount').value);
-        const notes = document.getElementById('transaction-notes').value.trim();
-        const categorySelect = document.getElementById('transaction-category');
-        const splitsSection = document.getElementById('splits-section');
+    // Get transaction form data
+    getTransactionFormData() {
+        return {
+            date: document.getElementById('transaction-date').value,
+            type: document.getElementById('transaction-type').value,
+            payee: document.getElementById('transaction-payee').value.trim(),
+            accountId: document.getElementById('transaction-account').value,
+            totalAmount: parseFloat(document.getElementById('transaction-amount').value),
+            notes: document.getElementById('transaction-notes').value.trim(),
+            categorySelect: document.getElementById('transaction-category'),
+            splitsSection: document.getElementById('splits-section')
+        };
+    }
+
+    // Validate transaction data
+    validateTransactionData(data) {
+        const { date, type, payee, accountId, totalAmount } = data;
 
         if (!date || !type || (!payee && type !== 'transfer') || !accountId || isNaN(totalAmount) || totalAmount <= 0) {
             alert('Please fill in all required fields');
-            return;
+            return false;
         }
+        return true;
+    }
 
+    // Collect and validate splits or transfer data
+    collectTransactionSplits(data) {
+        const { type, accountId, totalAmount, categorySelect, splitsSection } = data;
         let splits = [];
         let toAccountId = null;
 
@@ -2429,11 +2442,11 @@ class BudgetBuddy {
             toAccountId = document.getElementById('transaction-to-account').value;
             if (!toAccountId) {
                 alert('Please select a destination account');
-                return;
+                return null;
             }
             if (toAccountId === accountId) {
                 alert('Source and destination accounts must be different');
-                return;
+                return null;
             }
         } else if (splitsSection.style.display !== 'none' && categorySelect.value === '__split__') {
             // Collect splits
@@ -2453,22 +2466,37 @@ class BudgetBuddy {
             // Validate splits total matches transaction amount
             if (Math.abs(totalAmount - splitsTotal) > 0.01) {
                 alert('Split amounts must equal the total transaction amount');
-                return;
+                return null;
             }
 
             if (splits.length === 0) {
                 alert('Please add at least one category split');
-                return;
+                return null;
             }
         } else {
             // Single category
             const categoryId = categorySelect.value;
             if (!categoryId || categoryId === '__split__') {
                 alert('Please select a category');
-                return;
+                return null;
             }
             splits = [{ categoryId, amount: totalAmount }];
         }
+
+        return { splits, toAccountId };
+    }
+
+    // Main save transaction method - now much simpler
+    saveTransaction() {
+        const data = this.getTransactionFormData();
+
+        if (!this.validateTransactionData(data)) return;
+
+        const splitsResult = this.collectTransactionSplits(data);
+        if (!splitsResult) return;
+
+        const { splits, toAccountId } = splitsResult;
+        const { date, type, payee, accountId, totalAmount, notes } = data;
 
         // Save payee if new
         if (payee && !this.payees.includes(payee)) {
