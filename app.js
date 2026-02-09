@@ -40,6 +40,8 @@ class BudgetBuddy {
         this.setupGroupManagement();
         this.setupTransactionManagement();
         this.setupAllocationModal();
+        this.setupDataManagement();
+        this.setupSettingsNav();
         this.renderCategories();
         this.updateDashboard();
     }
@@ -657,6 +659,623 @@ class BudgetBuddy {
         // Close on outside click
         modal.addEventListener('click', (e) => {
             if (e.target === modal) this.closeAllocateModal();
+        });
+    }
+
+    // Data Import/Export
+    setupDataManagement() {
+        // Export modal
+        const exportBtn = document.getElementById('export-data-btn');
+        const exportModal = document.getElementById('export-modal');
+        const closeExportBtn = document.getElementById('close-export-modal');
+        const cancelExportBtn = document.getElementById('cancel-export-btn');
+        const downloadExportBtn = document.getElementById('download-export-btn');
+
+        exportBtn.addEventListener('click', () => this.openExportModal());
+        closeExportBtn.addEventListener('click', () => this.closeExportModal());
+        cancelExportBtn.addEventListener('click', () => this.closeExportModal());
+        downloadExportBtn.addEventListener('click', () => this.executeExport());
+        exportModal.addEventListener('click', (e) => {
+            if (e.target === exportModal) this.closeExportModal();
+        });
+
+        // Import modal
+        const importBtn = document.getElementById('import-data-btn');
+        const importModal = document.getElementById('import-modal');
+        const closeImportBtn = document.getElementById('close-import-modal');
+        const cancelImportBtn = document.getElementById('cancel-import-btn');
+        const executeImportBtn = document.getElementById('execute-import-btn');
+        const importFileInput = document.getElementById('import-file');
+
+        importBtn.addEventListener('click', () => this.openImportModal());
+        closeImportBtn.addEventListener('click', () => this.closeImportModal());
+        cancelImportBtn.addEventListener('click', () => this.closeImportModal());
+        executeImportBtn.addEventListener('click', () => this.executeImport());
+        importFileInput.addEventListener('change', (e) => this.handleImportFileSelect(e));
+        importModal.addEventListener('click', (e) => {
+            if (e.target === importModal) this.closeImportModal();
+        });
+    }
+
+    openExportModal() {
+        const modal = document.getElementById('export-modal');
+        modal.classList.add('active');
+    }
+
+    closeExportModal() {
+        const modal = document.getElementById('export-modal');
+        modal.classList.remove('active');
+    }
+
+    openImportModal() {
+        const modal = document.getElementById('import-modal');
+        document.getElementById('import-file').value = '';
+        document.getElementById('execute-import-btn').disabled = true;
+        document.getElementById('import-preview').style.display = 'none';
+        modal.classList.add('active');
+    }
+
+    closeImportModal() {
+        const modal = document.getElementById('import-modal');
+        modal.classList.remove('active');
+    }
+
+    async executeExport() {
+        const exportAccounts = document.getElementById('export-accounts').checked;
+        const exportCategories = document.getElementById('export-categories').checked;
+        const exportGroups = document.getElementById('export-groups').checked;
+        const exportTransactions = document.getElementById('export-transactions').checked;
+        const exportAllocations = document.getElementById('export-allocations').checked;
+        const dateFrom = document.getElementById('export-date-from').value;
+        const dateTo = document.getElementById('export-date-to').value;
+
+        const selectedCount = [exportAccounts, exportCategories, exportGroups, exportTransactions, exportAllocations].filter(Boolean).length;
+
+        if (selectedCount === 0) {
+            alert('Please select at least one data type to export');
+            return;
+        }
+
+        const files = {};
+
+        // Generate CSV files for selected data types
+        if (exportAccounts) {
+            files['accounts.csv'] = this.generateAccountsCSV();
+        }
+        if (exportCategories) {
+            files['categories.csv'] = this.generateCategoriesCSV();
+        }
+        if (exportGroups) {
+            files['groups.csv'] = this.generateGroupsCSV();
+        }
+        if (exportTransactions) {
+            files['transactions.csv'] = this.generateTransactionsCSV(dateFrom, dateTo);
+        }
+        if (exportAllocations) {
+            files['allocations.csv'] = this.generateAllocationsCSV();
+        }
+
+        // Download files
+        if (selectedCount === 1) {
+            // Single file - download as CSV
+            const filename = Object.keys(files)[0];
+            const content = files[filename];
+            this.downloadFile(filename, content, 'text/csv');
+        } else {
+            // Multiple files - download as ZIP
+            const zip = new JSZip();
+            Object.keys(files).forEach(filename => {
+                zip.file(filename, files[filename]);
+            });
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+            this.downloadFile('budgetbuddy-export.zip', zipBlob, 'application/zip');
+        }
+
+        this.closeExportModal();
+    }
+
+    generateAccountsCSV() {
+        const headers = ['ID', 'Name', 'Type', 'Balance', 'Notes'];
+        const rows = this.accounts.map(acc => [
+            acc.id,
+            this.escapeCSV(acc.name),
+            acc.type,
+            acc.balance,
+            this.escapeCSV(acc.notes || '')
+        ]);
+        return this.arrayToCSV([headers, ...rows]);
+    }
+
+    generateCategoriesCSV() {
+        const headers = ['ID', 'Name', 'Group ID', 'Group Name', 'Monthly Limit'];
+        const rows = this.categories.map(cat => {
+            const group = cat.groupId ? this.groups.find(g => g.id === cat.groupId) : null;
+            return [
+                cat.id,
+                this.escapeCSV(cat.name),
+                cat.groupId || '',
+                group ? this.escapeCSV(group.name) : '',
+                cat.monthlyLimit || ''
+            ];
+        });
+        return this.arrayToCSV([headers, ...rows]);
+    }
+
+    generateGroupsCSV() {
+        const headers = ['ID', 'Name', 'Monthly Limit'];
+        const rows = this.groups.map(grp => [
+            grp.id,
+            this.escapeCSV(grp.name),
+            grp.monthlyLimit || ''
+        ]);
+        return this.arrayToCSV([headers, ...rows]);
+    }
+
+    generateTransactionsCSV(dateFrom, dateTo) {
+        const headers = ['Transaction ID', 'Split #', 'Date', 'Type', 'Payee', 'Account ID', 'Account Name', 'To Account ID', 'To Account Name', 'Total Amount', 'Category ID', 'Category Name', 'Split Amount', 'Notes'];
+
+        let transactions = this.transactions;
+
+        // Filter by date range if provided
+        if (dateFrom) {
+            transactions = transactions.filter(t => t.date >= dateFrom);
+        }
+        if (dateTo) {
+            transactions = transactions.filter(t => t.date <= dateTo);
+        }
+
+        const rows = [];
+        transactions.forEach(t => {
+            const account = this.accounts.find(a => a.id === t.accountId);
+            const toAccount = t.toAccountId ? this.accounts.find(a => a.id === t.toAccountId) : null;
+
+            if (t.splits && t.splits.length > 0) {
+                // Multiple rows for split transaction
+                t.splits.forEach((split, idx) => {
+                    const category = this.categories.find(c => c.id === split.categoryId);
+                    rows.push([
+                        t.id,
+                        idx + 1,
+                        t.date,
+                        t.type,
+                        this.escapeCSV(t.payee || ''),
+                        t.accountId,
+                        account ? this.escapeCSV(account.name) : '',
+                        t.toAccountId || '',
+                        toAccount ? this.escapeCSV(toAccount.name) : '',
+                        t.totalAmount,
+                        split.categoryId,
+                        category ? this.escapeCSV(category.name) : '',
+                        split.amount,
+                        idx === 0 ? this.escapeCSV(t.notes || '') : ''
+                    ]);
+                });
+            } else {
+                // Single row for non-split transaction
+                rows.push([
+                    t.id,
+                    1,
+                    t.date,
+                    t.type,
+                    this.escapeCSV(t.payee || ''),
+                    t.accountId,
+                    account ? this.escapeCSV(account.name) : '',
+                    t.toAccountId || '',
+                    toAccount ? this.escapeCSV(toAccount.name) : '',
+                    t.totalAmount,
+                    '',
+                    '',
+                    '',
+                    this.escapeCSV(t.notes || '')
+                ]);
+            }
+        });
+
+        return this.arrayToCSV([headers, ...rows]);
+    }
+
+    generateAllocationsCSV() {
+        const headers = ['Category ID', 'Category Name', 'Year', 'Month', 'Month Name', 'Amount'];
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+        const rows = [];
+        Object.keys(this.allocations).forEach(key => {
+            const [categoryId, year, month] = key.split('-');
+            const category = this.categories.find(c => c.id === categoryId);
+            const amount = this.allocations[key];
+
+            rows.push([
+                categoryId,
+                category ? this.escapeCSV(category.name) : '',
+                year,
+                parseInt(month) + 1,
+                monthNames[parseInt(month)],
+                amount
+            ]);
+        });
+
+        return this.arrayToCSV([headers, ...rows]);
+    }
+
+    escapeCSV(str) {
+        const s = String(str);
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+            return '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+    }
+
+    arrayToCSV(array) {
+        return array.map(row => row.join(',')).join('\n');
+    }
+
+    downloadFile(filename, content, mimeType) {
+        const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    async handleImportFileSelect(event) {
+        const file = event.target.files[0];
+        if (!file) {
+            document.getElementById('execute-import-btn').disabled = true;
+            return;
+        }
+
+        try {
+            let parsedData = {};
+
+            if (file.name.endsWith('.zip')) {
+                // Handle ZIP file
+                const zip = new JSZip();
+                const contents = await zip.loadAsync(file);
+
+                for (const filename of Object.keys(contents.files)) {
+                    if (filename.endsWith('.csv')) {
+                        const text = await contents.files[filename].async('text');
+                        const dataType = filename.replace('.csv', '');
+                        parsedData[dataType] = this.parseCSV(text);
+                    }
+                }
+            } else if (file.name.endsWith('.csv')) {
+                // Handle single CSV file
+                const text = await file.text();
+                const dataType = file.name.replace('.csv', '');
+                parsedData[dataType] = this.parseCSV(text);
+            } else {
+                alert('Please select a CSV or ZIP file');
+                return;
+            }
+
+            // Store parsed data for import
+            this.importData = parsedData;
+
+            // Show preview
+            this.showImportPreview(parsedData);
+            document.getElementById('execute-import-btn').disabled = false;
+
+        } catch (error) {
+            alert('Error reading file: ' + error.message);
+            document.getElementById('execute-import-btn').disabled = true;
+        }
+    }
+
+    parseCSV(text) {
+        const lines = text.trim().split('\n');
+        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+        const rows = [];
+
+        for (let i = 1; i < lines.length; i++) {
+            const values = this.parseCSVLine(lines[i]);
+            const obj = {};
+            headers.forEach((header, idx) => {
+                obj[header] = values[idx] || '';
+            });
+            rows.push(obj);
+        }
+
+        return rows;
+    }
+
+    parseCSVLine(line) {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            const nextChar = line[i + 1];
+
+            if (char === '"') {
+                if (inQuotes && nextChar === '"') {
+                    current += '"';
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === ',' && !inQuotes) {
+                result.push(current.trim());
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+        result.push(current.trim());
+        return result;
+    }
+
+    showImportPreview(parsedData) {
+        const preview = document.getElementById('import-preview');
+        const content = document.getElementById('import-preview-content');
+
+        const summary = [];
+        if (parsedData.accounts) summary.push(`${parsedData.accounts.length} accounts`);
+        if (parsedData.categories) summary.push(`${parsedData.categories.length} categories`);
+        if (parsedData.groups) summary.push(`${parsedData.groups.length} groups`);
+        if (parsedData.transactions) summary.push(`${parsedData.transactions.length} transaction rows`);
+        if (parsedData.allocations) summary.push(`${parsedData.allocations.length} allocations`);
+
+        content.textContent = 'Ready to import: ' + summary.join(', ');
+        preview.style.display = 'block';
+    }
+
+    executeImport() {
+        if (!this.importData) {
+            alert('No data to import');
+            return;
+        }
+
+        const mode = document.querySelector('input[name="import-mode"]:checked').value;
+        const confirmMsg = mode === 'replace'
+            ? 'This will REPLACE ALL your current data. Are you sure?'
+            : 'This will ADD the imported data to your current data. Continue?';
+
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        try {
+            if (mode === 'replace') {
+                // Clear existing data
+                this.accounts = [];
+                this.categories = [];
+                this.groups = [];
+                this.transactions = [];
+                this.allocations = {};
+                this.payees = [];
+            }
+
+            // Import data
+            if (this.importData.accounts) {
+                this.importAccounts(this.importData.accounts, mode);
+            }
+            if (this.importData.groups) {
+                this.importGroups(this.importData.groups, mode);
+            }
+            if (this.importData.categories) {
+                this.importCategories(this.importData.categories, mode);
+            }
+            if (this.importData.transactions) {
+                this.importTransactions(this.importData.transactions, mode);
+            }
+            if (this.importData.allocations) {
+                this.importAllocations(this.importData.allocations, mode);
+            }
+
+            // Save all data
+            this.saveData('accounts', this.accounts);
+            this.saveData('categories', this.categories);
+            this.saveData('groups', this.groups);
+            this.saveData('transactions', this.transactions);
+            this.saveData('allocations', this.allocations);
+            this.saveData('payees', this.payees);
+
+            // Refresh UI
+            this.renderCategories();
+            this.renderTransactions();
+            this.updateDashboard();
+
+            this.closeImportModal();
+            alert('Data imported successfully!');
+
+        } catch (error) {
+            alert('Error importing data: ' + error.message);
+        }
+    }
+
+    importAccounts(data, mode) {
+        data.forEach(row => {
+            const account = {
+                id: row.ID || this.generateId(),
+                name: row.Name,
+                type: row.Type,
+                balance: parseFloat(row.Balance) || 0,
+                notes: row.Notes || '',
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
+
+            if (mode === 'merge') {
+                // Check for duplicates by ID or name
+                const existing = this.accounts.find(a => a.id === account.id || a.name === account.name);
+                if (!existing) {
+                    this.accounts.push(account);
+                }
+            } else {
+                this.accounts.push(account);
+            }
+        });
+    }
+
+    importGroups(data, mode) {
+        data.forEach(row => {
+            const group = {
+                id: row.ID || this.generateId(),
+                name: row.Name,
+                monthlyLimit: row['Monthly Limit'] ? parseFloat(row['Monthly Limit']) : null,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
+
+            if (mode === 'merge') {
+                // Check for duplicates by ID or name
+                const existing = this.groups.find(g => g.id === group.id || g.name === group.name);
+                if (!existing) {
+                    this.groups.push(group);
+                }
+            } else {
+                this.groups.push(group);
+            }
+        });
+    }
+
+    importCategories(data, mode) {
+        data.forEach(row => {
+            // Match group by ID or name
+            let groupId = row['Group ID'] || null;
+            if (!groupId && row['Group Name']) {
+                const group = this.groups.find(g => g.name === row['Group Name']);
+                groupId = group ? group.id : null;
+            }
+
+            const category = {
+                id: row.ID || this.generateId(),
+                name: row.Name,
+                groupId: groupId,
+                monthlyLimit: row['Monthly Limit'] ? parseFloat(row['Monthly Limit']) : null,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
+
+            if (mode === 'merge') {
+                // Check for duplicates by ID or name
+                const existing = this.categories.find(c => c.id === category.id || c.name === category.name);
+                if (!existing) {
+                    this.categories.push(category);
+                }
+            } else {
+                this.categories.push(category);
+            }
+        });
+    }
+
+    importTransactions(data, mode) {
+        // Group by transaction ID or generate new groups
+        const transactionMap = {};
+        let txCounter = 1;
+
+        data.forEach(row => {
+            let txId = row['Transaction ID'];
+            if (!txId) {
+                // Generate transaction ID based on date and counter
+                txId = `imported-tx-${row.Date}-${txCounter++}`;
+            }
+            if (!transactionMap[txId]) {
+                transactionMap[txId] = [];
+            }
+            transactionMap[txId].push(row);
+        });
+
+        // Convert to transactions
+        Object.keys(transactionMap).forEach(txId => {
+            const rows = transactionMap[txId];
+            const firstRow = rows[0];
+
+            // Match account by ID or name
+            let accountId = firstRow['Account ID'];
+            if (!accountId && firstRow['Account Name']) {
+                const account = this.accounts.find(a => a.name === firstRow['Account Name']);
+                accountId = account ? account.id : null;
+            }
+
+            // Match to-account by ID or name (for transfers)
+            let toAccountId = firstRow['To Account ID'] || null;
+            if (!toAccountId && firstRow['To Account Name']) {
+                const toAccount = this.accounts.find(a => a.name === firstRow['To Account Name']);
+                toAccountId = toAccount ? toAccount.id : null;
+            }
+
+            // Build splits, matching categories by ID or name
+            const splits = rows.map(row => {
+                let categoryId = row['Category ID'];
+                if (!categoryId && row['Category Name']) {
+                    const category = this.categories.find(c => c.name === row['Category Name']);
+                    categoryId = category ? category.id : null;
+                }
+
+                return {
+                    categoryId: categoryId,
+                    amount: parseFloat(row['Split Amount']) || parseFloat(row['Total Amount']) || 0
+                };
+            }).filter(split => split.categoryId);
+
+            const transaction = {
+                id: txId,
+                date: firstRow.Date,
+                type: firstRow.Type,
+                payee: firstRow.Payee || '',
+                accountId: accountId,
+                toAccountId: toAccountId,
+                totalAmount: parseFloat(firstRow['Total Amount']) || 0,
+                splits: splits.length > 0 ? splits : [],
+                notes: firstRow.Notes || '',
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
+
+            // Skip if account not found
+            if (!transaction.accountId) {
+                console.warn(`Skipping transaction - account not found: ${firstRow['Account Name']}`);
+                return;
+            }
+
+            if (transaction.payee && !this.payees.includes(transaction.payee)) {
+                this.payees.push(transaction.payee);
+            }
+
+            if (mode === 'merge') {
+                const existing = this.transactions.find(t => t.id === transaction.id);
+                if (!existing) {
+                    this.transactions.push(transaction);
+                }
+            } else {
+                this.transactions.push(transaction);
+            }
+        });
+    }
+
+    importAllocations(data, mode) {
+        data.forEach(row => {
+            // Match category by ID or name
+            let categoryId = row['Category ID'];
+            if (!categoryId && row['Category Name']) {
+                const category = this.categories.find(c => c.name === row['Category Name']);
+                categoryId = category ? category.id : null;
+            }
+
+            if (!categoryId) {
+                console.warn('Allocation skipped: category not found', row);
+                return;
+            }
+
+            const year = row.Year;
+            const month = parseInt(row.Month) - 1; // Convert from 1-indexed to 0-indexed
+            const amount = parseFloat(row.Amount) || 0;
+            const key = `${categoryId}-${year}-${month}`;
+
+            if (mode === 'merge') {
+                if (!this.allocations[key]) {
+                    this.allocations[key] = amount;
+                }
+            } else {
+                this.allocations[key] = amount;
+            }
         });
     }
 
@@ -1927,6 +2546,25 @@ class BudgetBuddy {
         const [year, month, day] = dateString.split('-').map(Number);
         const date = new Date(year, month - 1, day);
         return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    setupSettingsNav() {
+        const navItems = document.querySelectorAll('.settings-nav-item');
+        navItems.forEach(item => {
+            item.addEventListener('click', () => {
+                const tabName = item.dataset.settingsTab;
+
+                // Update nav items
+                navItems.forEach(nav => nav.classList.remove('active'));
+                item.classList.add('active');
+
+                // Update tabs
+                document.querySelectorAll('.settings-tab').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+                document.querySelector(`.settings-tab[data-tab="${tabName}"]`).classList.add('active');
+            });
+        });
     }
 
     updateNetWorth() {

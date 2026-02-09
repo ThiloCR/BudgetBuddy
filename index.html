@@ -4,15 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BudgetBuddy - Personal Finance Tracker</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
     <header class="topbar">
         <div class="logo">
-            <img src="budgetbuddy-logo.svg" alt="BudgetBuddy" />
+            <img src="BudgetBuddyV2.svg" alt="BudgetBuddy" />
         </div>
     </header>
 
@@ -42,6 +44,13 @@
                         <line x1="10" y1="9" x2="8" y2="9"/>
                     </svg>
                     <span class="nav-label">Transactions</span>
+                </button>
+                <button class="nav-item" data-view="settings">
+                    <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                    <span class="nav-label">Settings</span>
                 </button>
             </nav>
             <div class="sidebar-account-list" id="sidebar-account-list" style="display: none;"></div>
@@ -342,6 +351,69 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Settings View -->
+            <section id="settings-view" class="view">
+                <div class="settings-layout">
+                    <aside class="settings-sidebar">
+                        <nav class="settings-nav">
+                            <button class="settings-nav-item active" data-settings-tab="data">
+                                <svg class="settings-nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+                                    <polyline points="13 2 13 9 20 9"/>
+                                </svg>
+                                <span>Data</span>
+                            </button>
+                        </nav>
+                    </aside>
+                    <div class="settings-content">
+                        <!-- Data Tab -->
+                        <div class="settings-tab active" data-tab="data">
+                            <h2>Data Management</h2>
+                            <div class="settings-section">
+                                <div class="settings-list">
+                                    <button class="settings-list-item" id="export-data-btn">
+                                        <div class="settings-list-icon">
+                                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                                <polyline points="7 10 12 15 17 10"/>
+                                                <line x1="12" y1="15" x2="12" y2="3"/>
+                                            </svg>
+                                        </div>
+                                        <div class="settings-list-content">
+                                            <div class="settings-list-title">Export Data</div>
+                                            <div class="settings-list-description">Download your data as CSV files</div>
+                                        </div>
+                                        <div class="settings-list-arrow">
+                                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="9 18 15 12 9 6"/>
+                                            </svg>
+                                        </div>
+                                    </button>
+                                    <button class="settings-list-item" id="import-data-btn">
+                                        <div class="settings-list-icon">
+                                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                                <polyline points="17 8 12 3 7 8"/>
+                                                <line x1="12" y1="3" x2="12" y2="15"/>
+                                            </svg>
+                                        </div>
+                                        <div class="settings-list-content">
+                                            <div class="settings-list-title">Import Data</div>
+                                            <div class="settings-list-description">Upload CSV or ZIP files to import</div>
+                                        </div>
+                                        <div class="settings-list-arrow">
+                                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="9 18 15 12 9 6"/>
+                                            </svg>
+                                        </div>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
 
@@ -387,6 +459,95 @@
         </div>
     </div>
 
+    <!-- Export Data Modal -->
+    <div id="export-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Export Data</h3>
+                <button class="close-btn" id="close-export-modal">&times;</button>
+            </div>
+            <div class="export-body">
+                <p>Select the data you want to export:</p>
+                <div class="export-checkboxes">
+                    <label class="export-checkbox-item">
+                        <input type="checkbox" id="export-accounts" checked>
+                        <span>Accounts</span>
+                    </label>
+                    <label class="export-checkbox-item">
+                        <input type="checkbox" id="export-categories" checked>
+                        <span>Categories</span>
+                    </label>
+                    <label class="export-checkbox-item">
+                        <input type="checkbox" id="export-groups" checked>
+                        <span>Groups</span>
+                    </label>
+                    <label class="export-checkbox-item">
+                        <input type="checkbox" id="export-transactions" checked>
+                        <span>Transactions</span>
+                    </label>
+                    <label class="export-checkbox-item">
+                        <input type="checkbox" id="export-allocations" checked>
+                        <span>Budget Allocations</span>
+                    </label>
+                </div>
+                <div class="form-group" id="export-date-range" style="margin-top: 20px;">
+                    <label>Transaction Date Range (optional)</label>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <input type="date" id="export-date-from" placeholder="From">
+                        </div>
+                        <div class="form-group">
+                            <input type="date" id="export-date-to" placeholder="To">
+                        </div>
+                    </div>
+                    <small>Leave blank to export all transactions</small>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" id="cancel-export-btn">Cancel</button>
+                <button type="button" class="btn-primary" id="download-export-btn">Download</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Data Modal -->
+    <div id="import-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Import Data</h3>
+                <button class="close-btn" id="close-import-modal">&times;</button>
+            </div>
+            <div class="import-body">
+                <div class="form-group">
+                    <label for="import-file">Select CSV or ZIP file *</label>
+                    <input type="file" id="import-file" accept=".csv,.zip" required>
+                    <small>Upload CSV files exported from BudgetBuddy</small>
+                </div>
+                <div class="form-group">
+                    <label>Import Mode</label>
+                    <div class="import-mode-options">
+                        <label class="import-mode-item">
+                            <input type="radio" name="import-mode" value="replace" checked>
+                            <span><strong>Replace All Data</strong> - Clear existing data and import</span>
+                        </label>
+                        <label class="import-mode-item">
+                            <input type="radio" name="import-mode" value="merge">
+                            <span><strong>Merge with Existing</strong> - Add imported data to current data</span>
+                        </label>
+                    </div>
+                </div>
+                <div id="import-preview" style="display: none;">
+                    <h4>Preview</h4>
+                    <div id="import-preview-content"></div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" id="cancel-import-btn">Cancel</button>
+                <button type="button" class="btn-primary" id="execute-import-btn" disabled>Import Data</button>
+            </div>
+        </div>
+    </div>
+
     <nav class="bottom-nav">
         <button class="bottom-nav-item active" data-view="dashboard">
             <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -402,11 +563,17 @@
         </button>
         <button class="bottom-nav-item" data-view="transactions">
             <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <path d="M14 2H6a2 2 0 0 0 2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                 <polyline points="14 2 14 8 20 8"/>
                 <line x1="16" y1="13" x2="8" y2="13"/>
                 <line x1="16" y1="17" x2="8" y2="17"/>
                 <line x1="10" y1="9" x2="8" y2="9"/>
+            </svg>
+        </button>
+        <button class="bottom-nav-item" data-view="settings">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                <circle cx="12" cy="12" r="3"/>
             </svg>
         </button>
     </nav>

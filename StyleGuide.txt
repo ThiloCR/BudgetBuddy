@@ -1,0 +1,583 @@
+========================================
+BUDGETBUDDY DESIGN STYLE GUIDE
+========================================
+Version 1.0 | February 2026
+For use as a design reference for similar projects
+
+This document captures the visual design principles, patterns, and specifications
+of BudgetBuddy to serve as inspiration and guidance for future projects.
+
+
+========================================
+1. DESIGN PHILOSOPHY
+========================================
+
+Core Principles:
+- CLARITY OVER DECORATION: Every element serves a purpose; no ornamentation for its own sake
+- FLAT & MODERN: Minimal shadows, clean surfaces, contemporary aesthetic
+- BREATHING ROOM: Generous spacing prevents visual clutter
+- THOUGHTFUL COLOR: Color conveys meaning, not just aesthetics
+- RESPONSIVE BY DEFAULT: Mobile-first thinking in every decision
+
+Brand Personality:
+- Empathetic: Understanding user challenges
+- Practical: Solutions over buzzwords
+- Trustworthy: Reliable and secure feeling
+- Approachable: Simple, never intimidating
+
+
+========================================
+2. COLOR PALETTE
+========================================
+
+PRIMARY COLORS
+--------------
+BudgetBuddy Blue: #2563EB (37, 99, 235)
+  - Use for: Primary actions, active states, links, key information
+  - Hover state: #1D4ED8 (slightly darker)
+
+Academic Navy: #1E3A5F (30, 58, 95)
+  - Use for: Primary text, navigation backgrounds, formal contexts
+  - Creates professional, trustworthy feeling
+
+Success Green: #059669 (5, 150, 105)
+  - Use for: Positive balances, income, confirmations, success states
+
+Error Red: #DC2626 (220, 38, 38)
+  - Use for: Negative balances, errors, destructive actions, alerts
+
+Warning Amber: #D97706 (217, 119, 6)
+  - Use for: Expense indicators, warnings, attention-required states
+
+NEUTRALS
+--------
+Background Gray: #F3F4F6 (243, 244, 246)
+  - Use for: Page backgrounds, subtle fills
+
+Card White: #FFFFFF (255, 255, 255)
+  - Use for: Cards, modals, elevated surfaces
+
+Medium Gray: #9CA3AF (156, 163, 175)
+  - Use for: Secondary text, borders, disabled states
+
+Light Blue: #DBEAFE (219, 234, 254)
+  - Use for: Highlights, selected states, hover backgrounds
+
+SPECIAL COLOR NOTES
+-------------------
+- On dark backgrounds (Academic Navy): Use #FCA5A5 for negative/error text
+  (maintains WCAG AA contrast; standard #DC2626 fails contrast check)
+- Never use color alone to convey information
+- All color combinations tested for WCAG 2.1 AA compliance
+
+
+========================================
+3. TYPOGRAPHY
+========================================
+
+TYPEFACE
+--------
+Primary: Inter
+  - Use for: All UI elements, body text, headings
+  - Clean, modern, highly legible
+  - Weights: Regular (400), Medium (500), Semibold (600), Bold (700)
+
+TYPE SCALE
+----------
+H1 - Page Titles
+  Size: 24px | Weight: Semibold (600) | Line Height: 1.3
+
+H2 - Section Headers
+  Size: 20px | Weight: Medium (500) | Line Height: 1.4
+
+H3 - Card Titles
+  Size: 16px | Weight: Medium (500) | Line Height: 1.4
+
+Body - Main Content
+  Size: 14px | Weight: Regular (400) | Line Height: 1.5
+
+Small - Captions, Metadata
+  Size: 12-13px | Weight: Regular (400) | Line Height: 1.4
+
+Micro - Labels, Uppercase Tags
+  Size: 11px | Weight: Semibold (600) | Line Height: 1
+  Style: UPPERCASE with 0.5px letter-spacing
+
+DATA DISPLAY TYPOGRAPHY
+-----------------------
+Large Numbers (Dashboard): 32px, Bold (700)
+Medium Numbers (Cards): 20px, Bold (700)
+Small Numbers (Tables): 13-14px, Medium (500)
+
+READABILITY PRINCIPLES
+----------------------
+- Never use font sizes smaller than 11px
+- Minimum line height: 1.3 for headings, 1.5 for body
+- Adequate contrast: dark text on light, light text on dark
+- Uppercase text only for small labels (11-12px max)
+
+
+========================================
+4. SPACING SYSTEM
+========================================
+
+Base Unit: 4px
+Scale: 4, 6, 8, 10, 12, 16, 20, 24, 28, 32, 40, 60
+
+COMPONENT SPACING
+-----------------
+Button Padding: 10px vertical, 16px horizontal
+Small Button: 6px vertical, 12px horizontal
+Card Padding: 16px all sides
+Modal Padding: 20px all sides
+Form Group Margin: 20px bottom
+Section Margin: 32px bottom
+Page Padding: 30px desktop, 20px tablet, 16px mobile
+
+LAYOUT SPACING
+--------------
+Grid/Flex Gap: 20px (desktop), 12px (mobile)
+Element Gap: 12px between related items
+Micro Gap: 4-8px for tightly grouped elements
+
+PRINCIPLES
+----------
+- Consistent spacing creates visual rhythm
+- More space around unrelated items
+- Less space for grouped/related items
+- Generous padding prevents cramped feeling
+
+
+========================================
+5. LAYOUT PATTERNS
+========================================
+
+DESKTOP LAYOUT (>768px)
+-----------------------
+Structure:
+- Fixed top bar (72px height, dark Academic Navy)
+- Fixed left sidebar (220px width, dark Academic Navy, sticky)
+- Main content area (flexible width, light background)
+- Content padding: 30px on desktop
+
+Mobile Adaptation:
+- Hide left sidebar
+- Show fixed bottom navigation (64px height, white)
+- Reduce content padding to 16px
+- Add 80px bottom padding to clear bottom nav
+
+RESPONSIVE BREAKPOINTS
+----------------------
+Desktop: >768px
+Tablet: 481-768px
+Mobile: ≤480px
+
+Design mobile-first, enhance for larger screens
+
+
+========================================
+6. COMPONENT SPECIFICATIONS
+========================================
+
+BUTTONS
+-------
+Primary Button:
+  - Background: BudgetBuddy Blue (#2563EB)
+  - Text: White
+  - Padding: 10px 16px
+  - Border Radius: 6px
+  - Min Width: 80px
+  - Hover: Darker blue (#1D4ED8)
+
+Secondary Button:
+  - Background: White
+  - Border: 1px solid BudgetBuddy Blue
+  - Text: BudgetBuddy Blue
+  - Padding: 10px 16px
+  - Border Radius: 6px
+  - Hover: Light blue background (#DBEAFE)
+
+Danger Button:
+  - Background: Error Red (#DC2626)
+  - Text: White
+  - Padding: 10px 16px
+  - Border Radius: 6px
+  - Hover: Darker red (#B91C1C)
+
+Button Principles:
+  - Use clear, action-oriented labels
+  - Primary action = primary button
+  - Secondary actions = secondary button
+  - Destructive actions = danger button
+  - Never use generic labels ("Submit", "Click Here")
+
+CARDS
+-----
+Specifications:
+  - Background: Light gray (#F3F4F6) or white
+  - Border Radius: 8px
+  - Padding: 16px
+  - Shadow: None (flat design) or minimal (0 1px 3px rgba(0,0,0,0.1))
+  - Margin Bottom: 20px
+
+Usage:
+  - Group related information
+  - Create visual hierarchy
+  - Separate content sections
+
+FORMS
+-----
+Input Fields:
+  - Border: 1px solid Medium Gray (#9CA3AF)
+  - Border Radius: 6px
+  - Padding: 10px 12px
+  - Font Size: 16px (prevents mobile zoom)
+  - Focus: 2px solid BudgetBuddy Blue outline
+
+Labels:
+  - Position: Above input
+  - Font Weight: Medium (500)
+  - Margin Bottom: 6px
+  - Required fields: Mark with asterisk
+
+Help Text:
+  - Size: 12px
+  - Color: Medium Gray
+  - Position: Below input
+  - Margin Top: 4px
+
+Error States:
+  - Border: Error Red
+  - Error message below input in Error Red
+  - Clear, helpful error messages
+
+MODALS
+------
+Specifications:
+  - Background: White
+  - Border Radius: 8px
+  - Max Width: 500px (standard), 700px (large forms)
+  - Max Height: 90vh (with scroll)
+  - Backdrop: Black at 50% opacity
+  - Z-index: 1000
+
+Structure:
+  - Header: Title + close button, 20px padding, bottom border
+  - Body: Form or content, 20px padding
+  - Footer/Actions: Right-aligned buttons, 10px gap
+
+NAVIGATION
+----------
+Desktop Sidebar Items:
+  - Pill shape (border-radius: 999px)
+  - Padding: 10px 12px
+  - Active state: BudgetBuddy Blue background, white text
+  - Hover: Subtle white tint on dark background
+  - Icon + text layout
+
+Mobile Bottom Nav:
+  - Circular icon buttons (48px diameter)
+  - Pill shape with primary blue fill when active
+  - Icon only, no text
+  - Evenly spaced across bottom
+
+TABLES & LISTS
+--------------
+Headers:
+  - Background: Light blue (#93C5FD or #BFDBFE)
+  - Font: 12px, uppercase, semibold
+  - Padding: 12px 16px
+
+Rows:
+  - Alternating backgrounds (striped pattern)
+  - Light blue tints (#EFF6FF, #DBEAFE)
+  - Hover: Slightly darker blue (#93C5FD)
+  - Left-align text, right-align numbers
+
+Principles:
+  - Clear visual distinction between rows
+  - Adequate padding for scannability
+  - Consistent alignment
+
+
+========================================
+7. DATA VISUALIZATION
+========================================
+
+CHART PRINCIPLES
+----------------
+- Simple, clean design
+- Limited color palette (3-4 colors per chart)
+- Clear labels and legends
+- Responsive sizing
+- Interactive where useful (filters, toggles)
+
+BAR CHARTS
+----------
+Style:
+  - Horizontal bars preferred for labels
+  - 24px bar height
+  - 4px border radius
+  - Background track: Light gray (#F3F4F6)
+  - Fill: Color-coded by category
+
+Layout:
+  - Label (160px) | Bar (flexible) | Value (100px)
+  - Color dot before label
+  - Right-aligned values
+
+Special Patterns:
+  - Debt/negative: Diagonal stripe pattern overlay
+  - Income vs Expense: Different colors (green vs amber)
+
+PIE CHARTS
+----------
+Style:
+  - Canvas-based rendering
+  - Distinct colors for each segment
+  - Accompany with legend showing labels + values + percentages
+  - Centered total below chart
+
+LINE/TREND CHARTS
+-----------------
+Style:
+  - Clean lines, 2px stroke width
+  - Grid lines: Subtle, minimal
+  - Aspect ratio: 3.5:1 (wide format)
+  - Toggle buttons for filtering data
+
+COLOR CODING
+------------
+- Income: Success Green (#059669)
+- Expense: Warning Amber (#D97706) or Academic Navy
+- Transfer: BudgetBuddy Blue (#2563EB)
+- Positive Balance: Success Green
+- Negative Balance: Error Red
+- Neutral/Default: Medium Gray
+
+
+========================================
+8. INTERACTION PATTERNS
+========================================
+
+HOVER STATES
+------------
+- Buttons: Background color darkens
+- Links/Text: Color shifts to primary blue
+- Cards: Subtle lift (transform: translateY(-2px)) + enhanced shadow
+- Table Rows: Background darkens slightly (filter: brightness(0.92))
+
+ACTIVE/SELECTED STATES
+----------------------
+- Navigation: Primary blue fill with white text
+- Filters: Light blue background or primary blue pill
+- Checkboxes/Radio: Primary blue accent color
+- Table Rows: Distinct background color
+
+TRANSITIONS
+-----------
+Duration: 0.15-0.3s (fast, snappy)
+Easing: Default or ease-in-out
+Apply to: background-color, color, transform, box-shadow
+
+Principles:
+  - Subtle, purposeful animation
+  - Never distract from content
+  - Fast enough to feel responsive
+
+FEEDBACK
+--------
+- Loading states: Indicate processing
+- Success: Green confirmation message
+- Error: Red error message with guidance
+- Changes: Immediate visual feedback
+
+
+========================================
+9. MOBILE CONSIDERATIONS
+========================================
+
+TOUCH TARGETS
+-------------
+Minimum Size: 44px × 44px
+Spacing: 8px minimum between targets
+Principles:
+  - Easy to tap with thumb
+  - Adequate spacing prevents mistaps
+
+MOBILE LAYOUTS
+--------------
+- Stack elements vertically
+- Full-width buttons on mobile
+- Hide sidebar, show bottom nav
+- Horizontal scrolling for overflow (chips, filters)
+- Reduce font sizes slightly (but never below 11px)
+
+GESTURES
+--------
+- Tap: Primary interaction
+- Scroll: Natural vertical scrolling
+- Swipe: For horizontal filter chips
+- Avoid: Complex gestures (pinch, multi-finger)
+
+MOBILE-SPECIFIC PATTERNS
+------------------------
+- Chip/pill filters: Horizontal scrollable row
+- Collapsed table rows: Card-like layout
+- Modal full-width: Better use of small screens
+- Bottom-aligned actions: Easier to reach
+
+
+========================================
+10. SPECIAL DESIGN PATTERNS
+========================================
+
+BUDGET BANNERS (Unique to BudgetBuddy)
+---------------------------------------
+Style:
+  - Gradient backgrounds (blue or green)
+  - Large white text (28-32px)
+  - Rounded top corners (8px)
+  - Box shadow for elevation
+  - Interactive (hover lifts slightly)
+
+Purpose:
+  - Highlight critical financial metrics
+  - Create visual hierarchy
+  - Draw attention to important numbers
+
+EDITABLE TABLE CELLS
+--------------------
+Indicators:
+  - Subtle pencil icon (✎) appears on hover
+  - Colored border outline on hover
+  - Click to edit in modal or inline
+
+Principles:
+  - Clear visual feedback
+  - Easy to discover editing capability
+  - Non-intrusive when not needed
+
+SIDEBAR FILTERS
+---------------
+Style:
+  - Collapsible sections with chevron
+  - Pill-shaped filter buttons
+  - Active state: Light background or primary blue
+  - Uppercase section labels (11px)
+
+Usage:
+  - Group related filters
+  - Single-select or multi-select clear from context
+  - Persistent across sessions
+
+
+========================================
+11. ACCESSIBILITY NOTES
+========================================
+
+CONTRAST
+--------
+- All text meets WCAG 2.1 AA: 4.5:1 minimum
+- Large text (18px+): 3:1 minimum
+- Special case: Dark backgrounds require lighter error colors
+
+KEYBOARD NAVIGATION
+-------------------
+- All interactive elements keyboard accessible
+- Clear focus states (2px outline, primary blue)
+- Logical tab order
+- Skip to main content option
+
+SEMANTIC HTML
+-------------
+- Proper heading hierarchy (H1 → H2 → H3)
+- Semantic elements (nav, main, section, button)
+- Labels associated with inputs
+- Alt text for icons and images
+
+SCREEN READERS
+--------------
+- Descriptive button labels (not "Click here")
+- Form labels always present
+- Error messages announced
+- Dynamic content changes communicated
+
+
+========================================
+12. APPLYING THIS STYLE TO NEW PROJECTS
+========================================
+
+CORE ELEMENTS TO KEEP
+---------------------
+1. Flat, modern aesthetic with minimal shadows
+2. Navy + blue primary color scheme (adjust hue as needed)
+3. Generous spacing (breathing room)
+4. Pill-shaped interactive elements
+5. Light blue highlights for selected states
+6. Alternating table row colors
+7. Clear typography hierarchy
+8. Mobile-first responsive approach
+
+ELEMENTS TO ADAPT
+-----------------
+1. Specific color values (keep relationships, change hues)
+2. Component sizes (adjust for content needs)
+3. Layout structure (maintain principles, vary implementation)
+4. Data visualization colors (match new brand)
+
+PRINCIPLES THAT TRANSCEND
+--------------------------
+- Clarity over decoration
+- Purposeful color usage
+- Consistent spacing system
+- Accessible by default
+- Responsive design thinking
+- Fast, subtle interactions
+- Helpful, clear language
+
+
+========================================
+QUICK REFERENCE: KEY SPECIFICATIONS
+========================================
+
+Colors:
+  Primary Action: #2563EB
+  Dark Text/Nav: #1E3A5F
+  Success/Positive: #059669
+  Error/Negative: #DC2626
+  Warning/Expense: #D97706
+  Background: #F3F4F6
+  Card: #FFFFFF
+  Border/Secondary: #9CA3AF
+  Highlight: #DBEAFE
+
+Typography:
+  Primary Font: Inter
+  Main Size: 14px
+  Line Height: 1.5
+  Headings: 16-24px, Semibold
+
+Spacing:
+  Base: 4px
+  Card Padding: 16px
+  Section Gap: 20px
+  Page Padding: 30px (desktop), 16px (mobile)
+
+Borders:
+  Radius: 6px (buttons/inputs), 8px (cards), 999px (pills)
+  Width: 1px standard
+  Color: #9CA3AF
+
+Shadows:
+  Standard: 0 1px 3px rgba(0,0,0,0.1)
+  Large: 0 10px 25px rgba(0,0,0,0.1)
+  Modal Backdrop: rgba(0,0,0,0.5)
+
+
+========================================
+END OF STYLE GUIDE
+========================================
+
+For questions or clarifications: thilo.reinartz@gmail.com
+Last updated: February 2026
