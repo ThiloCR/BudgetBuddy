@@ -5,9 +5,10 @@ class BudgetBuddy {
         // Initialize services
         this.moneyService = new MoneyService();
         this.uiState = new UIStateManager();
+        this.dataStore = new DataStore();
 
-        // Data
-        this.accounts = this.loadData('accounts') || [];
+        // Data (will be migrated to DataStore in phases)
+        // Phase 2 Session 1: accounts migrated to DataStore
         this.categories = this.loadData('categories') || [];
         this.groups = this.loadData('groups') || [];
         this.transactions = this.loadData('transactions') || [];
@@ -175,7 +176,7 @@ class BudgetBuddy {
         if (accountId) {
             // Edit mode
             title.textContent = 'Edit Account';
-            const account = this.accounts.find(a => a.id === accountId);
+            const account = this.dataStore.getAccount(accountId);
             if (account) {
                 document.getElementById('account-name').value = account.name;
                 document.getElementById('account-type').value = account.type;
@@ -209,37 +210,32 @@ class BudgetBuddy {
             return;
         }
 
-        if (this.currentAccountId) {
-            // Update existing account
-            const accountIndex = this.accounts.findIndex(a => a.id === this.currentAccountId);
-            if (accountIndex !== -1) {
-                this.accounts[accountIndex] = {
-                    ...this.accounts[accountIndex],
+        try {
+            if (this.currentAccountId) {
+                // Update existing account
+                this.dataStore.updateAccount(this.currentAccountId, {
                     name,
                     type,
                     balance,
-                    notes,
-                    updatedAt: new Date().toISOString()
-                };
+                    notes
+                });
+            } else {
+                // Create new account
+                this.dataStore.addAccount({
+                    name,
+                    type,
+                    balance,
+                    currency: 'USD', // Default currency
+                    notes
+                });
             }
-        } else {
-            // Create new account
-            const newAccount = {
-                id: this.generateId(),
-                name,
-                type,
-                balance,
-                notes,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            };
-            this.accounts.push(newAccount);
-        }
 
-        this.saveData('accounts', this.accounts);
-        this.renderSidebarAccountList();
-        this.updateDashboard();
-        this.closeAccountModal();
+            this.renderSidebarAccountList();
+            this.updateDashboard();
+            this.closeAccountModal();
+        } catch (error) {
+            alert('Error saving account: ' + error.message);
+        }
     }
 
     deleteAccount(accountId) {
@@ -247,12 +243,15 @@ class BudgetBuddy {
             return;
         }
 
-        this.accounts = this.accounts.filter(a => a.id !== accountId);
-        this.uiState.setFilterAccounts(this.uiState.getFilterAccounts().filter(id => id !== accountId));
-        this.uiState.setDashFilterAccounts(this.uiState.getDashFilterAccounts().filter(id => id !== accountId));
-        this.saveData('accounts', this.accounts);
-        this.renderSidebarAccountList();
-        this.updateDashboard();
+        const success = this.dataStore.deleteAccount(accountId);
+        if (success) {
+            this.uiState.setFilterAccounts(this.uiState.getFilterAccounts().filter(id => id !== accountId));
+            this.uiState.setDashFilterAccounts(this.uiState.getDashFilterAccounts().filter(id => id !== accountId));
+            this.renderSidebarAccountList();
+            this.updateDashboard();
+        } else {
+            alert('Account not found');
+        }
     }
 
     // Group Management
@@ -767,20 +766,20 @@ class BudgetBuddy {
             files['allocations.csv'] = this.generateAllocationsCSV();
         }
 
-        // Download files
-        if (selectedCount === 1) {
-            // Single file - download as CSV
-            const filename = Object.keys(files)[0];
+        // Download files individually
+        const filenames = Object.keys(files);
+
+        // Download each file with a small delay to prevent browser blocking
+        for (let i = 0; i < filenames.length; i++) {
+            const filename = filenames[i];
             const content = files[filename];
+
+            // Add small delay between downloads (except for first file)
+            if (i > 0) {
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+
             this.downloadFile(filename, content, 'text/csv');
-        } else {
-            // Multiple files - download as ZIP
-            const zip = new JSZip();
-            Object.keys(files).forEach(filename => {
-                zip.file(filename, files[filename]);
-            });
-            const zipBlob = await zip.generateAsync({ type: 'blob' });
-            this.downloadFile('budgetbuddy-export.zip', zipBlob, 'application/zip');
         }
 
         this.closeExportModal();
@@ -788,7 +787,7 @@ class BudgetBuddy {
 
     generateAccountsCSV() {
         const headers = ['ID', 'Name', 'Type', 'Balance', 'Notes'];
-        const rows = this.accounts.map(acc => [
+        const rows = this.dataStore.getAccounts().map(acc => [
             acc.id,
             this.escapeCSV(acc.name),
             acc.type,
@@ -838,8 +837,8 @@ class BudgetBuddy {
 
         const rows = [];
         transactions.forEach(t => {
-            const account = this.accounts.find(a => a.id === t.accountId);
-            const toAccount = t.toAccountId ? this.accounts.find(a => a.id === t.toAccountId) : null;
+            const account = this.dataStore.getAccounts().find(a => a.id === t.accountId);
+            const toAccount = t.toAccountId ? this.dataStore.getAccounts().find(a => a.id === t.toAccountId) : null;
 
             if (t.splits && t.splits.length > 0) {
                 // Multiple rows for split transaction
@@ -943,25 +942,21 @@ class BudgetBuddy {
         try {
             let parsedData = {};
 
-            if (file.name.endsWith('.zip')) {
-                // Handle ZIP file
-                const zip = new JSZip();
-                const contents = await zip.loadAsync(file);
-
-                for (const filename of Object.keys(contents.files)) {
-                    if (filename.endsWith('.csv')) {
-                        const text = await contents.files[filename].async('text');
-                        const dataType = filename.replace('.csv', '');
-                        parsedData[dataType] = this.parseCSV(text);
-                    }
-                }
-            } else if (file.name.endsWith('.csv')) {
-                // Handle single CSV file
+            if (file.name.endsWith('.csv')) {
+                // Handle CSV file
                 const text = await file.text();
-                const dataType = file.name.replace('.csv', '');
-                parsedData[dataType] = this.parseCSV(text);
+                const parsed = this.parseCSV(text);
+
+                // Detect data type from CSV headers
+                const dataType = this.detectDataType(parsed);
+                if (dataType) {
+                    parsedData[dataType] = parsed;
+                } else {
+                    alert('Unable to determine data type from CSV headers. Please use exported CSV files.');
+                    return;
+                }
             } else {
-                alert('Please select a CSV or ZIP file');
+                alert('Please select a CSV file');
                 return;
             }
 
@@ -980,11 +975,16 @@ class BudgetBuddy {
 
     parseCSV(text) {
         const lines = text.trim().split('\n');
-        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+
+        // Detect delimiter (tab or comma)
+        const firstLine = lines[0];
+        const delimiter = firstLine.includes('\t') ? '\t' : ',';
+
+        const headers = firstLine.split(delimiter).map(h => h.trim().replace(/^"|"$/g, ''));
         const rows = [];
 
         for (let i = 1; i < lines.length; i++) {
-            const values = this.parseCSVLine(lines[i]);
+            const values = this.parseCSVLine(lines[i], delimiter);
             const obj = {};
             headers.forEach((header, idx) => {
                 obj[header] = values[idx] || '';
@@ -995,7 +995,7 @@ class BudgetBuddy {
         return rows;
     }
 
-    parseCSVLine(line) {
+    parseCSVLine(line, delimiter = ',') {
         const result = [];
         let current = '';
         let inQuotes = false;
@@ -1011,7 +1011,7 @@ class BudgetBuddy {
                 } else {
                     inQuotes = !inQuotes;
                 }
-            } else if (char === ',' && !inQuotes) {
+            } else if (char === delimiter && !inQuotes) {
                 result.push(current.trim());
                 current = '';
             } else {
@@ -1020,6 +1020,40 @@ class BudgetBuddy {
         }
         result.push(current.trim());
         return result;
+    }
+
+    detectDataType(parsedData) {
+        if (!parsedData || parsedData.length === 0) return null;
+
+        // Get the column headers (keys from first row)
+        const headers = Object.keys(parsedData[0]);
+
+        // Check for transaction-specific headers
+        if (headers.includes('Transaction ID') || headers.includes('Split #')) {
+            return 'transactions';
+        }
+
+        // Check for account-specific headers
+        if (headers.includes('Balance') && headers.includes('Type') && !headers.includes('Group ID')) {
+            return 'accounts';
+        }
+
+        // Check for category-specific headers
+        if (headers.includes('Group ID') || headers.includes('Group Name')) {
+            return 'categories';
+        }
+
+        // Check for group-specific headers (has Name and Monthly Limit, but not Group ID)
+        if (headers.includes('Name') && headers.includes('Monthly Limit') && !headers.includes('Group ID')) {
+            return 'groups';
+        }
+
+        // Check for allocation-specific headers
+        if (headers.includes('Category ID') && headers.includes('Month') && headers.includes('Amount')) {
+            return 'allocations';
+        }
+
+        return null;
     }
 
     showImportPreview(parsedData) {
@@ -1038,29 +1072,50 @@ class BudgetBuddy {
     }
 
     executeImport() {
+        console.log('=== IMPORT STARTED ===');
+
         if (!this.importData) {
             alert('No data to import');
             return;
         }
 
+        console.log('Import data types:', Object.keys(this.importData));
+        console.log('Accounts to import:', this.importData.accounts?.length || 0);
+        console.log('Categories to import:', this.importData.categories?.length || 0);
+        console.log('Transactions to import:', this.importData.transactions?.length || 0);
+
         const mode = document.querySelector('input[name="import-mode"]:checked').value;
+        console.log('Import mode:', mode);
+
         const confirmMsg = mode === 'replace'
             ? 'This will REPLACE ALL your current data. Are you sure?'
             : 'This will ADD the imported data to your current data. Continue?';
 
         if (!confirm(confirmMsg)) {
+            console.log('Import cancelled by user');
             return;
         }
 
         try {
+            // In replace mode, only clear data types that are being imported
             if (mode === 'replace') {
-                // Clear existing data
-                this.accounts = [];
-                this.categories = [];
-                this.groups = [];
-                this.transactions = [];
-                this.allocations = {};
-                this.payees = [];
+                if (this.importData.accounts) {
+                    this.dataStore.accounts = [];
+                    this.dataStore.saveData('accounts', []);
+                }
+                if (this.importData.groups) {
+                    this.groups = [];
+                }
+                if (this.importData.categories) {
+                    this.categories = [];
+                }
+                if (this.importData.transactions) {
+                    this.transactions = [];
+                    this.payees = [];
+                }
+                if (this.importData.allocations) {
+                    this.allocations = {};
+                }
             }
 
             // Import data
@@ -1074,14 +1129,15 @@ class BudgetBuddy {
                 this.importCategories(this.importData.categories, mode);
             }
             if (this.importData.transactions) {
+                console.log(`Calling importTransactions with ${this.importData.transactions.length} rows...`);
                 this.importTransactions(this.importData.transactions, mode);
+                console.log(`After importTransactions, this.transactions has ${this.transactions.length} items`);
             }
             if (this.importData.allocations) {
                 this.importAllocations(this.importData.allocations, mode);
             }
 
-            // Save all data
-            this.saveData('accounts', this.accounts);
+            // Save all data (accounts handled by DataStore)
             this.saveData('categories', this.categories);
             this.saveData('groups', this.groups);
             this.saveData('transactions', this.transactions);
@@ -1102,27 +1158,54 @@ class BudgetBuddy {
     }
 
     importAccounts(data, mode) {
+        console.log('=== IMPORT ACCOUNTS DEBUG ===');
+        console.log('First row data:', data[0]);
+
         data.forEach(row => {
+            // Clean balance value by removing currency symbols and commas
+            const balanceStr = (row.Balance || '0').replace(/[$,]/g, '');
+
+            console.log('Processing account:', {
+                name: row.Name,
+                rawBalance: row.Balance,
+                cleanedBalance: balanceStr,
+                parsedBalance: parseFloat(balanceStr)
+            });
+
             const account = {
                 id: row.ID || this.generateId(),
                 name: row.Name,
                 type: row.Type,
-                balance: parseFloat(row.Balance) || 0,
+                balance: parseFloat(balanceStr) || 0,
                 notes: row.Notes || '',
+                currency: 'USD',
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             };
 
             if (mode === 'merge') {
                 // Check for duplicates by ID or name
-                const existing = this.accounts.find(a => a.id === account.id || a.name === account.name);
-                if (!existing) {
-                    this.accounts.push(account);
+                const existingIndex = this.dataStore.accounts.findIndex(a => a.id === account.id || a.name === account.name);
+                if (existingIndex !== -1) {
+                    // Update existing account with imported data
+                    const existing = this.dataStore.accounts[existingIndex];
+                    this.dataStore.accounts[existingIndex] = {
+                        ...existing,
+                        type: account.type || existing.type,
+                        balance: account.balance,
+                        notes: account.notes || existing.notes,
+                        updatedAt: new Date().toISOString()
+                    };
+                    console.log(`Updated existing account: ${account.name} with balance ${account.balance}`);
+                } else {
+                    this.dataStore.accounts.push(account);
+                    console.log(`Added new account: ${account.name}`);
                 }
             } else {
-                this.accounts.push(account);
+                this.dataStore.accounts.push(account);
             }
         });
+        this.dataStore.saveData('accounts', this.dataStore.accounts);
     }
 
     importGroups(data, mode) {
@@ -1149,10 +1232,24 @@ class BudgetBuddy {
 
     importCategories(data, mode) {
         data.forEach(row => {
-            // Match group by ID or name
+            // Match group by ID or name, or create if doesn't exist
             let groupId = row['Group ID'] || null;
             if (!groupId && row['Group Name']) {
-                const group = this.groups.find(g => g.name === row['Group Name']);
+                let group = this.groups.find(g => g.name === row['Group Name']);
+
+                // Auto-create group if it doesn't exist
+                if (!group && row['Group Name'].trim()) {
+                    group = {
+                        id: this.generateId(),
+                        name: row['Group Name'].trim(),
+                        monthlyLimit: null,
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    };
+                    this.groups.push(group);
+                    console.log(`Auto-created group: ${group.name}`);
+                }
+
                 groupId = group ? group.id : null;
             }
 
@@ -1201,21 +1298,35 @@ class BudgetBuddy {
 
             // Match account by ID or name
             let accountId = firstRow['Account ID'];
+            // Check if account with this ID exists, if not try matching by name
+            if (accountId && !this.dataStore.getAccount(accountId)) {
+                console.log(`Account ID ${accountId} not found, trying to match by name: ${firstRow['Account Name']}`);
+                accountId = null;
+            }
             if (!accountId && firstRow['Account Name']) {
-                const account = this.accounts.find(a => a.name === firstRow['Account Name']);
+                const account = this.dataStore.getAccounts().find(a => a.name === firstRow['Account Name']);
                 accountId = account ? account.id : null;
+                console.log(`Matched account by name "${firstRow['Account Name']}" -> ${accountId || 'NOT FOUND'}`);
             }
 
             // Match to-account by ID or name (for transfers)
             let toAccountId = firstRow['To Account ID'] || null;
+            // Check if account with this ID exists, if not try matching by name
+            if (toAccountId && !this.dataStore.getAccount(toAccountId)) {
+                toAccountId = null;
+            }
             if (!toAccountId && firstRow['To Account Name']) {
-                const toAccount = this.accounts.find(a => a.name === firstRow['To Account Name']);
+                const toAccount = this.dataStore.getAccounts().find(a => a.name === firstRow['To Account Name']);
                 toAccountId = toAccount ? toAccount.id : null;
             }
 
             // Build splits, matching categories by ID or name
             const splits = rows.map(row => {
                 let categoryId = row['Category ID'];
+                // Check if category with this ID exists, if not try matching by name
+                if (categoryId && !this.categories.find(c => c.id === categoryId)) {
+                    categoryId = null;
+                }
                 if (!categoryId && row['Category Name']) {
                     const category = this.categories.find(c => c.name === row['Category Name']);
                     categoryId = category ? category.id : null;
@@ -1247,6 +1358,9 @@ class BudgetBuddy {
                 return;
             }
 
+            // Debug: Log successful import
+            console.log(`Importing transaction: ${transaction.date} ${transaction.type} ${transaction.totalAmount} for account ${accountId}`);
+
             if (transaction.payee && !this.payees.includes(transaction.payee)) {
                 this.payees.push(transaction.payee);
             }
@@ -1255,9 +1369,11 @@ class BudgetBuddy {
                 const existing = this.transactions.find(t => t.id === transaction.id);
                 if (!existing) {
                     this.transactions.push(transaction);
+                    console.log(`Added transaction (merge mode): ${transaction.id}`);
                 }
             } else {
                 this.transactions.push(transaction);
+                console.log(`Added transaction (replace mode): ${transaction.id}`);
             }
         });
     }
@@ -1700,7 +1816,8 @@ class BudgetBuddy {
     }
 
     selectFilterAccount(accountId) {
-        this.uiState.setFilterAccounts(accountId ? [accountId] : []);
+        // Handle empty string, null, undefined as "all accounts"
+        this.uiState.setFilterAccounts((accountId && accountId !== 'null') ? [accountId] : []);
         this.uiState.clearSelectedTransactions();
         this.updateActionBar();
         this.renderTransactions();
@@ -1761,7 +1878,6 @@ class BudgetBuddy {
         });
         this.transactions = this.transactions.filter(t => !this.uiState.getSelectedTransactions().has(t.id));
         this.saveData('transactions', this.transactions);
-        this.saveData('accounts', this.accounts);
 
         // Invalidate TBB cache for affected months
         affectedMonths.forEach(monthKey => {
@@ -1775,6 +1891,9 @@ class BudgetBuddy {
         this.uiState.clearSelectedTransactions();
         this.updateActionBar();
         this.renderTransactions();
+
+        // Force dashboard refresh to update account balances
+        this.uiState.setLastAccountsHash(null); // Invalidate cache
         this.updateDashboard();
     }
 
@@ -1784,7 +1903,7 @@ class BudgetBuddy {
 
         // Populate accounts dropdown
         accountSelect.innerHTML = '<option value="">No change</option>';
-        this.accounts.forEach(account => {
+        this.dataStore.getAccounts().forEach(account => {
             const option = document.createElement('option');
             option.value = account.id;
             option.textContent = account.name;
@@ -1817,7 +1936,7 @@ class BudgetBuddy {
         const changes = [];
         if (dateValue) changes.push(`Date \u2192 ${this.formatDate(dateValue)}`);
         if (accountValue) {
-            const account = this.accounts.find(a => a.id === accountValue);
+            const account = this.dataStore.getAccounts().find(a => a.id === accountValue);
             changes.push(`Account \u2192 ${account ? account.name : 'Unknown'}`);
         }
 
@@ -1840,7 +1959,6 @@ class BudgetBuddy {
         });
 
         this.saveData('transactions', this.transactions);
-        if (accountValue) this.saveData('accounts', this.accounts);
 
         // Invalidate spending map cache if transactions modified
         this.uiState.invalidateSpendingCache();
@@ -1849,6 +1967,9 @@ class BudgetBuddy {
         this.updateActionBar();
         this.closeBulkEditModal();
         this.renderTransactions();
+
+        // Force dashboard refresh to update account balances
+        this.uiState.setLastAccountsHash(null); // Invalidate cache
         this.updateDashboard();
     }
 
@@ -1872,9 +1993,9 @@ class BudgetBuddy {
         const activeAccountId = filterAccounts.length > 0 ? filterAccounts[0] : null;
 
         if (this.uiState.isManageAccountsMode()) {
-            const accountItems = this.accounts.map(account => `
+            const accountItems = this.dataStore.getAccounts().map(account => `
                 <div class="sidebar-account-item manage-item">
-                    <span>${this.escapeHtml(account.name)}</span>
+                    <span onclick="app.openAccountModal('${account.id}')" style="cursor: pointer; flex: 1;" title="Click to edit">${this.escapeHtml(account.name)}</span>
                     <button class="delete-account-btn" onclick="app.deleteAccount('${account.id}')" title="Delete">×</button>
                 </div>
             `).join('');
@@ -1888,16 +2009,16 @@ class BudgetBuddy {
             `;
         } else {
             const allClass = activeAccountId === null ? ' active' : '';
-            const accountItems = this.accounts.map(account => {
+            const accountItems = this.dataStore.getAccounts().map(account => {
                 const activeClass = account.id === activeAccountId ? ' active' : '';
                 return `<button class="sidebar-account-item${activeClass}" onclick="app.selectFilterAccount('${account.id}')">${this.escapeHtml(account.name)}</button>`;
             }).join('');
 
             container.innerHTML = `
                 <div class="sidebar-account-list-inner">
-                    <button class="sidebar-account-item${allClass}" onclick="app.selectFilterAccount(null)">All Accounts</button>
+                    <button class="sidebar-account-item${allClass}" onclick="app.selectFilterAccount('')">All Accounts</button>
                     ${accountItems}
-                    ${this.accounts.length > 0 ? '<button class="edit-accounts-btn" onclick="app.toggleManageAccounts()">Edit Accounts</button>' : ''}
+                    <button class="edit-accounts-btn" onclick="app.toggleManageAccounts()">Edit Accounts</button>
                 </div>
             `;
         }
@@ -1913,13 +2034,13 @@ class BudgetBuddy {
         const activeAccountId = filterAccounts.length > 0 ? filterAccounts[0] : null;
         const allClass = activeAccountId === null ? ' active' : '';
 
-        const chips = this.accounts.map(account => {
+        const chips = this.dataStore.getAccounts().map(account => {
             const activeClass = account.id === activeAccountId ? ' active' : '';
             return `<button class="account-chip${activeClass}" onclick="app.selectFilterAccount('${account.id}')">${this.escapeHtml(account.name)}</button>`;
         }).join('');
 
         container.innerHTML = `
-            <button class="account-chip${allClass}" onclick="app.selectFilterAccount(null)">All</button>
+            <button class="account-chip${allClass}" onclick="app.selectFilterAccount('')">All</button>
             ${chips}
         `;
     }
@@ -1951,8 +2072,8 @@ class BudgetBuddy {
                     comparison = a.payee.localeCompare(b.payee);
                     break;
                 case 'account': {
-                    const nameA = (this.accounts.find(acc => acc.id === a.accountId) || {}).name || '';
-                    const nameB = (this.accounts.find(acc => acc.id === b.accountId) || {}).name || '';
+                    const nameA = (this.dataStore.getAccounts().find(acc => acc.id === a.accountId) || {}).name || '';
+                    const nameB = (this.dataStore.getAccounts().find(acc => acc.id === b.accountId) || {}).name || '';
                     comparison = nameA.localeCompare(nameB);
                     break;
                 }
@@ -2004,11 +2125,11 @@ class BudgetBuddy {
             transactionRows = filteredTransactions.map(transaction => {
                 let accountName;
                 if (transaction.type === 'transfer') {
-                    const fromAcc = this.accounts.find(a => a.id === transaction.accountId);
-                    const toAcc = this.accounts.find(a => a.id === transaction.toAccountId);
+                    const fromAcc = this.dataStore.getAccounts().find(a => a.id === transaction.accountId);
+                    const toAcc = this.dataStore.getAccounts().find(a => a.id === transaction.toAccountId);
                     accountName = `${this.escapeHtml(fromAcc ? fromAcc.name : 'Unknown')} → ${this.escapeHtml(toAcc ? toAcc.name : 'Unknown')}`;
                 } else {
-                    const account = this.accounts.find(a => a.id === transaction.accountId);
+                    const account = this.dataStore.getAccounts().find(a => a.id === transaction.accountId);
                     accountName = account ? account.name : 'Unknown';
                 }
 
@@ -2070,7 +2191,8 @@ class BudgetBuddy {
         if (isTransfer) {
             document.getElementById('single-category-section').style.display = 'none';
             document.getElementById('splits-section').style.display = 'none';
-            document.getElementById('single-category-section').querySelector('select').removeAttribute('required');
+            const catSelect = document.getElementById('transaction-category');
+            if (catSelect) catSelect.removeAttribute('required');
         } else {
             // Check if we're currently in split mode
             const catSelect = document.getElementById('transaction-category');
@@ -2101,7 +2223,7 @@ class BudgetBuddy {
 
         // Populate accounts dropdown
         accountSelect.innerHTML = '<option value="">Select account...</option>';
-        this.accounts.forEach(account => {
+        this.dataStore.getAccounts().forEach(account => {
             const option = document.createElement('option');
             option.value = account.id;
             option.textContent = account.name;
@@ -2111,7 +2233,7 @@ class BudgetBuddy {
         // Populate to-account dropdown (for transfers)
         const toAccountSelect = document.getElementById('transaction-to-account');
         toAccountSelect.innerHTML = '<option value="">Select account...</option>';
-        this.accounts.forEach(account => {
+        this.dataStore.getAccounts().forEach(account => {
             const option = document.createElement('option');
             option.value = account.id;
             option.textContent = account.name;
@@ -2359,20 +2481,26 @@ class BudgetBuddy {
     }
 
     applyTransactionEffect(transaction, sign) {
-        const fromAccount = this.accounts.find(a => a.id === transaction.accountId);
+        const fromAccount = this.dataStore.getAccount(transaction.accountId);
         if (!fromAccount) return;
 
         const amount = this.moneyService.moneyMultiply(sign, transaction.totalAmount);
+        let newFromBalance;
 
         if (transaction.type === 'income') {
-            fromAccount.balance = this.moneyService.moneyAdd(fromAccount.balance, amount);
+            newFromBalance = this.moneyService.moneyAdd(fromAccount.balance, amount);
+            this.dataStore.updateAccountBalance(transaction.accountId, newFromBalance);
         } else if (transaction.type === 'expense') {
-            fromAccount.balance = this.moneyService.moneySubtract(fromAccount.balance, amount);
+            newFromBalance = this.moneyService.moneySubtract(fromAccount.balance, amount);
+            this.dataStore.updateAccountBalance(transaction.accountId, newFromBalance);
         } else if (transaction.type === 'transfer') {
-            fromAccount.balance = this.moneyService.moneySubtract(fromAccount.balance, amount);
-            const toAccount = this.accounts.find(a => a.id === transaction.toAccountId);
+            newFromBalance = this.moneyService.moneySubtract(fromAccount.balance, amount);
+            this.dataStore.updateAccountBalance(transaction.accountId, newFromBalance);
+
+            const toAccount = this.dataStore.getAccount(transaction.toAccountId);
             if (toAccount) {
-                toAccount.balance = this.moneyService.moneyAdd(toAccount.balance, amount);
+                const newToBalance = this.moneyService.moneyAdd(toAccount.balance, amount);
+                this.dataStore.updateAccountBalance(transaction.toAccountId, newToBalance);
             }
         }
     }
@@ -2524,7 +2652,6 @@ class BudgetBuddy {
         }
 
         this.saveData('transactions', this.transactions);
-        this.saveData('accounts', this.accounts);
 
         // Invalidate TBB cache for transaction month
         const [tYear, tMonth] = date.split('-');
@@ -2609,7 +2736,7 @@ class BudgetBuddy {
     }
 
     updateNetWorth() {
-        const total = this.moneyService.moneySum(this.accounts.map(a => a.balance));
+        const total = this.moneyService.moneySum(this.dataStore.getAccounts().map(a => a.balance));
         const el = document.getElementById('sidebar-net-worth-value');
         if (el) {
             el.textContent = this.moneyService.formatCurrency(total);
@@ -2623,7 +2750,7 @@ class BudgetBuddy {
         this.updateNetWorth();
 
         // Check if accounts changed
-        const accountsHash = this.uiState.simpleHash(this.accounts);
+        const accountsHash = this.uiState.simpleHash(this.dataStore.getAccounts());
         const accountsChanged = accountsHash !== this.uiState.getLastAccountsHash();
         if (accountsChanged) {
             this.uiState.setLastAccountsHash(accountsHash);
@@ -2783,12 +2910,12 @@ class BudgetBuddy {
     updateAccountsSummary() {
         const container = document.getElementById('accounts-summary');
 
-        if (this.accounts.length === 0) {
+        if (this.dataStore.getAccounts().length === 0) {
             container.innerHTML = 'No accounts yet';
             return;
         }
 
-        const summary = this.accounts.map(account => {
+        const summary = this.dataStore.getAccounts().map(account => {
             const balance = this.moneyService.formatCurrency(account.balance);
             return `
                 <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
@@ -2798,7 +2925,7 @@ class BudgetBuddy {
             `;
         }).join('');
 
-        const total = this.moneyService.moneySum(this.accounts.map(a => a.balance));
+        const total = this.moneyService.moneySum(this.dataStore.getAccounts().map(a => a.balance));
 
         container.innerHTML = summary + `
             <div class="accounts-summary-total">
@@ -2822,14 +2949,14 @@ class BudgetBuddy {
             mortgage:   '#E11D48'
         };
 
-        if (this.accounts.length === 0) {
+        if (this.dataStore.getAccounts().length === 0) {
             container.innerHTML = '<div class="chart-empty">No accounts yet. Add an account to see the chart.</div>';
             return;
         }
 
         const visible = this.uiState.getDashFilterAccounts().length > 0
-            ? this.accounts.filter(a => this.uiState.getDashFilterAccounts().includes(a.id))
-            : this.accounts;
+            ? this.dataStore.getAccounts().filter(a => this.uiState.getDashFilterAccounts().includes(a.id))
+            : this.dataStore.getAccounts();
 
         if (visible.length === 0) {
             container.innerHTML = '<div class="chart-empty">No accounts selected</div>';
@@ -3009,7 +3136,7 @@ class BudgetBuddy {
             `<button class="sidebar-type-btn${this.uiState.getDashFilterDateRange() === val ? ' active' : ''}" onclick="app.setDashFilterDateRange('${val}')">${label}</button>`
         ).join('');
 
-        const accountItems = this.accounts.map(account =>
+        const accountItems = this.dataStore.getAccounts().map(account =>
             `<button class="sidebar-filter-item${this.uiState.getDashFilterAccounts().includes(account.id) ? ' active' : ''}" onclick="app.toggleDashFilterAccount('${account.id}')">${this.escapeHtml(account.name)}</button>`
         ).join('');
 
@@ -3139,12 +3266,14 @@ class BudgetBuddy {
         ];
         const maxVal = Math.max(...allValues);
 
-        // Canvas setup
+        // Canvas setup - use parent card width for full-width chart
         const dpr = window.devicePixelRatio || 1;
-        const cssW = canvas.offsetWidth || 680;
+        const parentWidth = canvas.parentElement.clientWidth;
+        const cssW = parentWidth > 0 ? parentWidth : 680;
         const cssH = Math.round(cssW / 3.5);
         canvas.width = cssW * dpr;
         canvas.height = cssH * dpr;
+        canvas.style.width = cssW + 'px';
         canvas.style.height = cssH + 'px';
 
         const ctx = canvas.getContext('2d');
