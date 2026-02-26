@@ -9,8 +9,7 @@ class BudgetBuddy {
 
         // Data (will be migrated to DataStore in phases)
         // Phase 2 Session 1: accounts migrated to DataStore
-        this.categories = this.loadData('categories') || [];
-        this.groups = this.loadData('groups') || [];
+        // Phase 2 Session 2: categories and groups migrated to DataStore
         this.transactions = this.loadData('transactions') || [];
         this.payees = this.loadData('payees') || [];
         this.allocations = this.loadData('allocations') || {};
@@ -41,6 +40,77 @@ class BudgetBuddy {
         this.setupGlobalDropdownHandler();
         this.renderCategories();
         this.updateDashboard();
+
+        // Check for orphaned transactions (transactions with invalid accountIds)
+        this.checkOrphanedTransactions();
+    }
+
+    // ==================== DATA MIGRATION ====================
+
+    checkOrphanedTransactions() {
+        const orphaned = this.transactions.filter(t => {
+            const account = this.dataStore.getAccount(t.accountId);
+            return !account;
+        });
+
+        if (orphaned.length > 0) {
+            console.warn(`Found ${orphaned.length} transactions with missing accounts`);
+            // Show migration prompt after a brief delay to let UI load
+            setTimeout(() => this.showOrphanedTransactionsMigration(orphaned), 1000);
+        }
+    }
+
+    showOrphanedTransactionsMigration(orphanedTransactions) {
+        const message = `Found ${orphanedTransactions.length} transaction(s) that reference deleted accounts.\n\nWould you like to fix this now? You'll be able to reassign them to existing accounts.`;
+
+        if (confirm(message)) {
+            this.openMigrationTool(orphanedTransactions);
+        }
+    }
+
+    openMigrationTool(orphanedTransactions) {
+        // Create a simple prompt-based migration
+        const accountList = this.dataStore.getAccounts()
+            .map((a, i) => `${i + 1}. ${a.name}`)
+            .join('\n');
+
+        const choice = prompt(
+            `Reassign ${orphanedTransactions.length} orphaned transactions:\n\n` +
+            `Available accounts:\n${accountList}\n\n` +
+            `Enter account number (1-${this.dataStore.getAccounts().length}) to assign ALL orphaned transactions to that account.\n` +
+            `Or enter 0 to delete all orphaned transactions.`
+        );
+
+        if (choice === null) return; // User cancelled
+
+        const accountIndex = parseInt(choice) - 1;
+
+        if (choice === '0') {
+            // Delete orphaned transactions
+            this.transactions = this.transactions.filter(t => {
+                const account = this.dataStore.getAccount(t.accountId);
+                return account !== null;
+            });
+            this.saveData('transactions', this.transactions);
+            alert(`Deleted ${orphanedTransactions.length} orphaned transactions.`);
+            this.renderTransactions();
+            this.updateDashboard();
+        } else if (accountIndex >= 0 && accountIndex < this.dataStore.getAccounts().length) {
+            // Reassign to selected account
+            const targetAccount = this.dataStore.getAccounts()[accountIndex];
+            orphanedTransactions.forEach(orphan => {
+                const idx = this.transactions.findIndex(t => t.id === orphan.id);
+                if (idx !== -1) {
+                    this.transactions[idx].accountId = targetAccount.id;
+                }
+            });
+            this.saveData('transactions', this.transactions);
+            alert(`Reassigned ${orphanedTransactions.length} transactions to "${targetAccount.name}".`);
+            this.renderTransactions();
+            this.updateDashboard();
+        } else {
+            alert('Invalid selection. Migration cancelled.');
+        }
     }
 
     // Global handler for closing dropdowns when clicking outside (prevents memory leaks)
@@ -287,7 +357,7 @@ class BudgetBuddy {
         if (groupId) {
             // Edit mode
             title.textContent = 'Edit Group';
-            const group = this.groups.find(g => g.id === groupId);
+            const group = this.dataStore.getGroup(groupId);
             if (group) {
                 document.getElementById('group-name').value = group.name;
                 document.getElementById('group-limit').value = group.monthlyLimit || '';
@@ -324,32 +394,26 @@ class BudgetBuddy {
             return;
         }
 
-        if (this.currentGroupId) {
-            // Update existing group
-            const groupIndex = this.groups.findIndex(g => g.id === this.currentGroupId);
-            if (groupIndex !== -1) {
-                this.groups[groupIndex] = {
-                    ...this.groups[groupIndex],
+        try {
+            if (this.currentGroupId) {
+                // Update existing group
+                this.dataStore.updateGroup(this.currentGroupId, {
                     name,
-                    monthlyLimit,
-                    updatedAt: new Date().toISOString()
-                };
+                    monthlyLimit
+                });
+            } else {
+                // Create new group
+                this.dataStore.addGroup({
+                    name,
+                    monthlyLimit
+                });
             }
-        } else {
-            // Create new group
-            const newGroup = {
-                id: this.generateId(),
-                name,
-                monthlyLimit,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            };
-            this.groups.push(newGroup);
-        }
 
-        this.saveData('groups', this.groups);
-        this.renderCategories();
-        this.closeGroupModal();
+            this.renderCategories();
+            this.closeGroupModal();
+        } catch (error) {
+            alert('Error saving group: ' + error.message);
+        }
     }
 
     deleteGroup(groupId) {
@@ -358,17 +422,16 @@ class BudgetBuddy {
         }
 
         // Ungroup all categories in this group
-        this.categories = this.categories.map(cat => {
+        this.dataStore.getCategories().forEach(cat => {
             if (cat.groupId === groupId) {
-                return { ...cat, groupId: null };
+                this.dataStore.updateCategory(cat.id, { groupId: null });
             }
-            return cat;
         });
 
-        this.groups = this.groups.filter(g => g.id !== groupId);
-        this.saveData('groups', this.groups);
-        this.saveData('categories', this.categories);
-        this.renderCategories();
+        const success = this.dataStore.deleteGroup(groupId);
+        if (success) {
+            this.renderCategories();
+        }
     }
 
     // Category Management
@@ -404,7 +467,7 @@ class BudgetBuddy {
 
         // Populate groups dropdown
         groupSelect.innerHTML = '<option value="">No Group</option>';
-        this.groups.forEach(group => {
+        this.dataStore.getGroups().forEach(group => {
             const option = document.createElement('option');
             option.value = group.id;
             option.textContent = group.name;
@@ -414,7 +477,7 @@ class BudgetBuddy {
         if (categoryId) {
             // Edit mode
             title.textContent = 'Edit Category';
-            const category = this.categories.find(c => c.id === categoryId);
+            const category = this.dataStore.getCategory(categoryId);
             if (category) {
                 document.getElementById('category-name').value = category.name;
                 document.getElementById('category-group').value = category.groupId || '';
@@ -453,34 +516,28 @@ class BudgetBuddy {
             return;
         }
 
-        if (this.currentCategoryId) {
-            // Update existing category
-            const categoryIndex = this.categories.findIndex(c => c.id === this.currentCategoryId);
-            if (categoryIndex !== -1) {
-                this.categories[categoryIndex] = {
-                    ...this.categories[categoryIndex],
+        try {
+            if (this.currentCategoryId) {
+                // Update existing category
+                this.dataStore.updateCategory(this.currentCategoryId, {
                     name,
                     groupId,
-                    monthlyLimit,
-                    updatedAt: new Date().toISOString()
-                };
+                    monthlyLimit
+                });
+            } else {
+                // Create new category
+                this.dataStore.addCategory({
+                    name,
+                    groupId,
+                    monthlyLimit
+                });
             }
-        } else {
-            // Create new category
-            const newCategory = {
-                id: this.generateId(),
-                name,
-                groupId,
-                monthlyLimit,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            };
-            this.categories.push(newCategory);
-        }
 
-        this.saveData('categories', this.categories);
-        this.renderCategories();
-        this.closeCategoryModal();
+            this.renderCategories();
+            this.closeCategoryModal();
+        } catch (error) {
+            alert('Error saving category: ' + error.message);
+        }
     }
 
     deleteCategory(categoryId) {
@@ -488,15 +545,16 @@ class BudgetBuddy {
             return;
         }
 
-        this.categories = this.categories.filter(c => c.id !== categoryId);
-        this.uiState.setDashFilterCategories(this.uiState.getDashFilterCategories().filter(id => id !== categoryId));
-        this.saveData('categories', this.categories);
-        this.renderCategories();
+        const success = this.dataStore.deleteCategory(categoryId);
+        if (success) {
+            this.uiState.setDashFilterCategories(this.uiState.getDashFilterCategories().filter(id => id !== categoryId));
+            this.renderCategories();
+        }
     }
 
     openAllocateModal(categoryId, year, month) {
         const modal = document.getElementById('allocate-modal');
-        const category = this.categories.find(c => c.id === categoryId);
+        const category = this.dataStore.getCategories().find(c => c.id === categoryId);
         if (!category) return;
 
         this.currentAllocation = { categoryId, year, month };
@@ -556,7 +614,7 @@ class BudgetBuddy {
     }
 
     useMonthlyLimit() {
-        const category = this.categories.find(c => c.id === this.currentAllocation.categoryId);
+        const category = this.dataStore.getCategories().find(c => c.id === this.currentAllocation.categoryId);
         if (category && category.monthlyLimit) {
             document.getElementById('allocate-amount').value = category.monthlyLimit;
         }
@@ -574,7 +632,7 @@ class BudgetBuddy {
         const month = now.getMonth();
 
         let allocated = 0;
-        this.categories.forEach(cat => {
+        this.dataStore.getCategories().forEach(cat => {
             if (cat.monthlyLimit && cat.monthlyLimit > 0) {
                 const allocKey = `${cat.id}-${year}-${month}`;
                 this.allocations[allocKey] = cat.monthlyLimit;
@@ -593,7 +651,7 @@ class BudgetBuddy {
     }
 
     openQuickAllocate(year, month) {
-        if (this.categories.length === 0) {
+        if (this.dataStore.getCategories().length === 0) {
             alert('No categories available. Create categories first.');
             return;
         }
@@ -610,7 +668,7 @@ class BudgetBuddy {
         if (choice === '1') {
             // Auto-allocate using limits
             let allocated = 0;
-            this.categories.forEach(cat => {
+            this.dataStore.getCategories().forEach(cat => {
                 if (cat.monthlyLimit && cat.monthlyLimit > 0) {
                     const allocKey = `${cat.id}-${year}-${month}`;
                     this.allocations[allocKey] = cat.monthlyLimit;
@@ -628,9 +686,9 @@ class BudgetBuddy {
             }
         } else if (choice === '2') {
             // Distribute evenly
-            const perCategory = Math.floor((available / this.categories.length) * 100) / 100;
+            const perCategory = Math.floor((available / this.dataStore.getCategories().length) * 100) / 100;
             if (perCategory > 0) {
-                this.categories.forEach(cat => {
+                this.dataStore.getCategories().forEach(cat => {
                     const allocKey = `${cat.id}-${year}-${month}`;
                     this.allocations[allocKey] = perCategory;
                 });
@@ -638,7 +696,7 @@ class BudgetBuddy {
                 this.saveData('allocations', this.allocations);
                 this.invalidateTBBCache(year, month);
                 this.renderCategories();
-                alert(`Allocated ${this.moneyService.formatCurrency(perCategory)} to each of ${this.categories.length} categories.`);
+                alert(`Allocated ${this.moneyService.formatCurrency(perCategory)} to each of ${this.dataStore.getCategories().length} categories.`);
             } else {
                 alert('Not enough funds to distribute.');
             }
@@ -799,8 +857,8 @@ class BudgetBuddy {
 
     generateCategoriesCSV() {
         const headers = ['ID', 'Name', 'Group ID', 'Group Name', 'Monthly Limit'];
-        const rows = this.categories.map(cat => {
-            const group = cat.groupId ? this.groups.find(g => g.id === cat.groupId) : null;
+        const rows = this.dataStore.getCategories().map(cat => {
+            const group = cat.groupId ? this.dataStore.getGroups().find(g => g.id === cat.groupId) : null;
             return [
                 cat.id,
                 this.escapeCSV(cat.name),
@@ -814,7 +872,7 @@ class BudgetBuddy {
 
     generateGroupsCSV() {
         const headers = ['ID', 'Name', 'Monthly Limit'];
-        const rows = this.groups.map(grp => [
+        const rows = this.dataStore.getGroups().map(grp => [
             grp.id,
             this.escapeCSV(grp.name),
             grp.monthlyLimit || ''
@@ -843,7 +901,7 @@ class BudgetBuddy {
             if (t.splits && t.splits.length > 0) {
                 // Multiple rows for split transaction
                 t.splits.forEach((split, idx) => {
-                    const category = this.categories.find(c => c.id === split.categoryId);
+                    const category = this.dataStore.getCategories().find(c => c.id === split.categoryId);
                     rows.push([
                         t.id,
                         idx + 1,
@@ -892,7 +950,7 @@ class BudgetBuddy {
         const rows = [];
         Object.keys(this.allocations).forEach(key => {
             const [categoryId, year, month] = key.split('-');
-            const category = this.categories.find(c => c.id === categoryId);
+            const category = this.dataStore.getCategories().find(c => c.id === categoryId);
             const amount = this.allocations[key];
 
             rows.push([
@@ -1104,10 +1162,12 @@ class BudgetBuddy {
                     this.dataStore.saveData('accounts', []);
                 }
                 if (this.importData.groups) {
-                    this.groups = [];
+                    this.dataStore.groups = [];
+                    this.dataStore.saveData('groups', []);
                 }
                 if (this.importData.categories) {
-                    this.categories = [];
+                    this.dataStore.categories = [];
+                    this.dataStore.saveData('categories', []);
                 }
                 if (this.importData.transactions) {
                     this.transactions = [];
@@ -1137,9 +1197,11 @@ class BudgetBuddy {
                 this.importAllocations(this.importData.allocations, mode);
             }
 
-            // Save all data (accounts handled by DataStore)
-            this.saveData('categories', this.categories);
-            this.saveData('groups', this.groups);
+            // Save all data
+            // Note: Import methods manipulate DataStore arrays directly for performance
+            // (avoiding multiple saves), so we save once here at the end
+            this.dataStore.saveData('categories', this.dataStore.categories);
+            this.dataStore.saveData('groups', this.dataStore.groups);
             this.saveData('transactions', this.transactions);
             this.saveData('allocations', this.allocations);
             this.saveData('payees', this.payees);
@@ -1209,6 +1271,8 @@ class BudgetBuddy {
     }
 
     importGroups(data, mode) {
+        // Note: Directly manipulate DataStore array for bulk import performance
+        // Data is saved once after all imports complete
         data.forEach(row => {
             const group = {
                 id: row.ID || this.generateId(),
@@ -1220,22 +1284,24 @@ class BudgetBuddy {
 
             if (mode === 'merge') {
                 // Check for duplicates by ID or name
-                const existing = this.groups.find(g => g.id === group.id || g.name === group.name);
+                const existing = this.dataStore.groups.find(g => g.id === group.id || g.name === group.name);
                 if (!existing) {
-                    this.groups.push(group);
+                    this.dataStore.groups.push(group);
                 }
             } else {
-                this.groups.push(group);
+                this.dataStore.groups.push(group);
             }
         });
     }
 
     importCategories(data, mode) {
+        // Note: Directly manipulate DataStore array for bulk import performance
+        // Data is saved once after all imports complete
         data.forEach(row => {
             // Match group by ID or name, or create if doesn't exist
             let groupId = row['Group ID'] || null;
             if (!groupId && row['Group Name']) {
-                let group = this.groups.find(g => g.name === row['Group Name']);
+                let group = this.dataStore.groups.find(g => g.name === row['Group Name']);
 
                 // Auto-create group if it doesn't exist
                 if (!group && row['Group Name'].trim()) {
@@ -1246,7 +1312,7 @@ class BudgetBuddy {
                         createdAt: new Date().toISOString(),
                         updatedAt: new Date().toISOString()
                     };
-                    this.groups.push(group);
+                    this.dataStore.groups.push(group);
                     console.log(`Auto-created group: ${group.name}`);
                 }
 
@@ -1264,12 +1330,12 @@ class BudgetBuddy {
 
             if (mode === 'merge') {
                 // Check for duplicates by ID or name
-                const existing = this.categories.find(c => c.id === category.id || c.name === category.name);
+                const existing = this.dataStore.categories.find(c => c.id === category.id || c.name === category.name);
                 if (!existing) {
-                    this.categories.push(category);
+                    this.dataStore.categories.push(category);
                 }
             } else {
-                this.categories.push(category);
+                this.dataStore.categories.push(category);
             }
         });
     }
@@ -1304,7 +1370,24 @@ class BudgetBuddy {
                 accountId = null;
             }
             if (!accountId && firstRow['Account Name']) {
-                const account = this.dataStore.getAccounts().find(a => a.name === firstRow['Account Name']);
+                let account = this.dataStore.getAccounts().find(a => a.name === firstRow['Account Name']);
+
+                // Auto-create account if it doesn't exist (Option B)
+                if (!account && firstRow['Account Name'].trim()) {
+                    const newAccount = {
+                        id: this.generateId(),
+                        name: firstRow['Account Name'].trim(),
+                        type: 'chequing', // Default type
+                        balance: 0, // Will be calculated from transactions
+                        notes: 'Auto-created during import',
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    };
+                    this.dataStore.accounts.push(newAccount);
+                    account = newAccount;
+                    console.log(`Auto-created account: ${account.name}`);
+                }
+
                 accountId = account ? account.id : null;
                 console.log(`Matched account by name "${firstRow['Account Name']}" -> ${accountId || 'NOT FOUND'}`);
             }
@@ -1316,7 +1399,24 @@ class BudgetBuddy {
                 toAccountId = null;
             }
             if (!toAccountId && firstRow['To Account Name']) {
-                const toAccount = this.dataStore.getAccounts().find(a => a.name === firstRow['To Account Name']);
+                let toAccount = this.dataStore.getAccounts().find(a => a.name === firstRow['To Account Name']);
+
+                // Auto-create to-account if it doesn't exist (for transfers)
+                if (!toAccount && firstRow['To Account Name'].trim()) {
+                    const newAccount = {
+                        id: this.generateId(),
+                        name: firstRow['To Account Name'].trim(),
+                        type: 'chequing', // Default type
+                        balance: 0, // Will be calculated from transactions
+                        notes: 'Auto-created during import',
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    };
+                    this.dataStore.accounts.push(newAccount);
+                    toAccount = newAccount;
+                    console.log(`Auto-created to-account: ${toAccount.name}`);
+                }
+
                 toAccountId = toAccount ? toAccount.id : null;
             }
 
@@ -1324,11 +1424,11 @@ class BudgetBuddy {
             const splits = rows.map(row => {
                 let categoryId = row['Category ID'];
                 // Check if category with this ID exists, if not try matching by name
-                if (categoryId && !this.categories.find(c => c.id === categoryId)) {
+                if (categoryId && !this.dataStore.getCategories().find(c => c.id === categoryId)) {
                     categoryId = null;
                 }
                 if (!categoryId && row['Category Name']) {
-                    const category = this.categories.find(c => c.name === row['Category Name']);
+                    const category = this.dataStore.categories.find(c => c.name === row['Category Name']);
                     categoryId = category ? category.id : null;
                 }
 
@@ -1383,7 +1483,7 @@ class BudgetBuddy {
             // Match category by ID or name
             let categoryId = row['Category ID'];
             if (!categoryId && row['Category Name']) {
-                const category = this.categories.find(c => c.name === row['Category Name']);
+                const category = this.dataStore.categories.find(c => c.name === row['Category Name']);
                 categoryId = category ? category.id : null;
             }
 
@@ -1415,7 +1515,7 @@ class BudgetBuddy {
     renderCategories() {
         const container = document.getElementById('categories-container');
 
-        if (this.groups.length === 0 && this.categories.length === 0) {
+        if (this.dataStore.getGroups().length === 0 && this.dataStore.getCategories().length === 0) {
             container.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">📁</div>
@@ -1532,8 +1632,8 @@ class BudgetBuddy {
         // Build body rows
         let body = '';
         let categoryCounter = 0;
-        this.groups.forEach(group => {
-            const groupCats = this.categories.filter(c => c.groupId === group.id);
+        this.dataStore.getGroups().forEach(group => {
+            const groupCats = this.dataStore.getCategories().filter(c => c.groupId === group.id);
             body += renderGroupRow(group, groupCats);
             if (!this.uiState.getCollapsedGroups().has(group.id)) {
                 groupCats.forEach(cat => {
@@ -1543,9 +1643,9 @@ class BudgetBuddy {
             }
         });
 
-        const ungrouped = this.categories.filter(c => !c.groupId);
+        const ungrouped = this.dataStore.getCategories().filter(c => !c.groupId);
         if (ungrouped.length > 0) {
-            if (this.groups.length > 0) {
+            if (this.dataStore.getGroups().length > 0) {
                 body += '<div class="category-row category-section-divider">';
                 body += '<div class="category-cell category-name-cell">Ungrouped</div>';
                 months.forEach(m => {
@@ -1587,7 +1687,7 @@ class BudgetBuddy {
 
             // Calculate this month's allocations
             let thisMonthAllocated = 0;
-            this.categories.forEach(cat => {
+            this.dataStore.getCategories().forEach(cat => {
                 const allocKey = `${cat.id}-${m.year}-${m.month}`;
                 thisMonthAllocated += this.allocations[allocKey] || 0;
             });
@@ -1769,7 +1869,7 @@ class BudgetBuddy {
         }
 
         // Add categories
-        this.categories.forEach(cat => {
+        this.dataStore.getCategories().forEach(cat => {
             if (!term || cat.name.toLowerCase().includes(term)) {
                 options.push({
                     value: cat.id,
@@ -2078,8 +2178,8 @@ class BudgetBuddy {
                     break;
                 }
                 case 'categories': {
-                    const catA = a.splits && a.splits[0] ? (this.categories.find(c => c.id === a.splits[0].categoryId) || {}).name || '' : '';
-                    const catB = b.splits && b.splits[0] ? (this.categories.find(c => c.id === b.splits[0].categoryId) || {}).name || '' : '';
+                    const catA = a.splits && a.splits[0] ? (this.dataStore.getCategories().find(c => c.id === a.splits[0].categoryId) || {}).name || '' : '';
+                    const catB = b.splits && b.splits[0] ? (this.dataStore.getCategories().find(c => c.id === b.splits[0].categoryId) || {}).name || '' : '';
                     comparison = catA.localeCompare(catB);
                     break;
                 }
@@ -2136,11 +2236,11 @@ class BudgetBuddy {
                 let categoriesText = '';
                 if (transaction.splits && transaction.splits.length > 0) {
                     if (transaction.splits.length === 1) {
-                        const category = this.categories.find(c => c.id === transaction.splits[0].categoryId);
+                        const category = this.dataStore.getCategories().find(c => c.id === transaction.splits[0].categoryId);
                         categoriesText = category ? this.escapeHtml(category.name) : 'Uncategorized';
                     } else {
                         categoriesText = transaction.splits.map(split => {
-                            const category = this.categories.find(c => c.id === split.categoryId);
+                            const category = this.dataStore.getCategories().find(c => c.id === split.categoryId);
                             const categoryName = category ? category.name : 'Uncategorized';
                             return `<span class="transaction-category-item">${this.escapeHtml(categoryName)} (${this.moneyService.formatCurrency(split.amount)})</span>`;
                         }).join('');
@@ -2288,7 +2388,7 @@ class BudgetBuddy {
                     this.updateSplitsTotal();
                 } else if (transaction.splits && transaction.splits.length === 1) {
                     // Single category
-                    const selectedCategory = this.categories.find(c => c.id === transaction.splits[0].categoryId);
+                    const selectedCategory = this.dataStore.getCategories().find(c => c.id === transaction.splits[0].categoryId);
                     categorySelect.value = transaction.splits[0].categoryId;
                     categorySearchInput.value = selectedCategory ? selectedCategory.name : '';
                     categorySearchInput.classList.add('has-value');
@@ -2346,7 +2446,7 @@ class BudgetBuddy {
         splitDiv.id = splitId;
 
         // Get category name if selected
-        const selectedCategory = categoryId ? this.categories.find(c => c.id === categoryId) : null;
+        const selectedCategory = categoryId ? this.dataStore.getCategories().find(c => c.id === categoryId) : null;
         const categoryName = selectedCategory ? selectedCategory.name : '';
         const hasValueClass = categoryId ? ' has-value' : '';
 
@@ -2413,7 +2513,7 @@ class BudgetBuddy {
         const term = searchTerm.toLowerCase().trim();
 
         // Build options list (no split option for splits)
-        let options = this.categories
+        let options = this.dataStore.getCategories()
             .filter(cat => !term || cat.name.toLowerCase().includes(term))
             .map(cat => ({ value: cat.id, label: cat.name }));
 
@@ -2830,7 +2930,7 @@ class BudgetBuddy {
             const upToDate = upToYear * 12 + upToMonth;
 
             if (monthDate < upToDate) { // Only count overspending from previous months
-                this.categories.forEach(cat => {
+                this.dataStore.getCategories().forEach(cat => {
                     const budget = this.getCategoryBudget(cat.id, year, month);
                     const spent = this.getCategorySpent(cat.id, year, month);
                     const balance = budget - spent;
@@ -3016,7 +3116,7 @@ class BudgetBuddy {
         // Sort descending, assign palette colors
         const data = Object.entries(totals)
             .map(([id, amount]) => {
-                const cat = this.categories.find(c => c.id === id);
+                const cat = this.dataStore.getCategories().find(c => c.id === id);
                 return { name: cat ? cat.name : 'Uncategorized', amount: Math.round(amount * 100) / 100 };
             })
             .sort((a, b) => b.amount - a.amount)
@@ -3140,7 +3240,7 @@ class BudgetBuddy {
             `<button class="sidebar-filter-item${this.uiState.getDashFilterAccounts().includes(account.id) ? ' active' : ''}" onclick="app.toggleDashFilterAccount('${account.id}')">${this.escapeHtml(account.name)}</button>`
         ).join('');
 
-        const categoryItems = this.categories.map(cat =>
+        const categoryItems = this.dataStore.getCategories().map(cat =>
             `<button class="sidebar-filter-item${this.uiState.getDashFilterCategories().includes(cat.id) ? ' active' : ''}" onclick="app.toggleDashFilterCategory('${cat.id}')">${this.escapeHtml(cat.name)}</button>`
         ).join('');
 
@@ -3268,8 +3368,10 @@ class BudgetBuddy {
 
         // Canvas setup - use parent card width for full-width chart
         const dpr = window.devicePixelRatio || 1;
-        const parentWidth = canvas.parentElement.clientWidth;
-        const cssW = parentWidth > 0 ? parentWidth : 680;
+        const card = canvas.closest('.card');
+        const parentWidth = card ? card.offsetWidth : canvas.parentElement.offsetWidth;
+        // Subtract card padding (24px * 2 = 48px)
+        const cssW = parentWidth > 48 ? parentWidth - 48 : 680;
         const cssH = Math.round(cssW / 3.5);
         canvas.width = cssW * dpr;
         canvas.height = cssH * dpr;

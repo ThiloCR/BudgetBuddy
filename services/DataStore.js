@@ -135,15 +135,181 @@ class DataStore {
         return true;
     }
 
-    // ==================== PLACEHOLDER GETTERS ====================
-    // These will be implemented in Sessions 2 and 3
+    // ==================== CATEGORIES ====================
 
+    /**
+     * Get all categories
+     * @returns {Array} Copy of categories array
+     */
     getCategories() {
         return [...this.categories];
     }
 
+    /**
+     * Get a single category by ID
+     * @param {string} id - Category ID
+     * @returns {Object|null} Category object or null if not found
+     */
+    getCategory(id) {
+        const category = this.categories.find(c => c.id === id);
+        return category ? { ...category } : null;
+    }
+
+    /**
+     * Add a new category
+     * @param {Object} categoryData - Category data {name, groupId, monthlyLimit}
+     * @returns {Object} The created category
+     */
+    addCategory(categoryData) {
+        const { name, groupId, monthlyLimit } = categoryData;
+
+        // Validation
+        if (!name) {
+            throw new Error('Category name is required');
+        }
+
+        const newCategory = {
+            id: this.generateId(),
+            name: name.trim(),
+            groupId: groupId || null,
+            monthlyLimit: monthlyLimit ? parseFloat(monthlyLimit) : null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        this.categories.push(newCategory);
+        this.saveData('categories', this.categories);
+
+        return { ...newCategory };
+    }
+
+    /**
+     * Update an existing category
+     * @param {string} id - Category ID
+     * @param {Object} updates - Fields to update
+     * @returns {Object|null} Updated category or null if not found
+     */
+    updateCategory(id, updates) {
+        const index = this.categories.findIndex(c => c.id === id);
+        if (index === -1) return null;
+
+        // Update allowed fields
+        const allowedFields = ['name', 'groupId', 'monthlyLimit'];
+        allowedFields.forEach(field => {
+            if (updates[field] !== undefined) {
+                this.categories[index][field] = updates[field];
+            }
+        });
+
+        this.categories[index].updatedAt = new Date().toISOString();
+        this.saveData('categories', this.categories);
+
+        return { ...this.categories[index] };
+    }
+
+    /**
+     * Delete a category
+     * @param {string} id - Category ID
+     * @returns {boolean} True if deleted, false if not found
+     */
+    deleteCategory(id) {
+        const initialLength = this.categories.length;
+        this.categories = this.categories.filter(c => c.id !== id);
+
+        if (this.categories.length < initialLength) {
+            this.saveData('categories', this.categories);
+            return true;
+        }
+
+        return false;
+    }
+
+    // ==================== GROUPS ====================
+
+    /**
+     * Get all groups
+     * @returns {Array} Copy of groups array
+     */
     getGroups() {
         return [...this.groups];
+    }
+
+    /**
+     * Get a single group by ID
+     * @param {string} id - Group ID
+     * @returns {Object|null} Group object or null if not found
+     */
+    getGroup(id) {
+        const group = this.groups.find(g => g.id === id);
+        return group ? { ...group } : null;
+    }
+
+    /**
+     * Add a new group
+     * @param {Object} groupData - Group data {name, monthlyLimit}
+     * @returns {Object} The created group
+     */
+    addGroup(groupData) {
+        const { name, monthlyLimit } = groupData;
+
+        // Validation
+        if (!name) {
+            throw new Error('Group name is required');
+        }
+
+        const newGroup = {
+            id: this.generateId(),
+            name: name.trim(),
+            monthlyLimit: monthlyLimit ? parseFloat(monthlyLimit) : null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        this.groups.push(newGroup);
+        this.saveData('groups', this.groups);
+
+        return { ...newGroup };
+    }
+
+    /**
+     * Update an existing group
+     * @param {string} id - Group ID
+     * @param {Object} updates - Fields to update
+     * @returns {Object|null} Updated group or null if not found
+     */
+    updateGroup(id, updates) {
+        const index = this.groups.findIndex(g => g.id === id);
+        if (index === -1) return null;
+
+        // Update allowed fields
+        const allowedFields = ['name', 'monthlyLimit'];
+        allowedFields.forEach(field => {
+            if (updates[field] !== undefined) {
+                this.groups[index][field] = updates[field];
+            }
+        });
+
+        this.groups[index].updatedAt = new Date().toISOString();
+        this.saveData('groups', this.groups);
+
+        return { ...this.groups[index] };
+    }
+
+    /**
+     * Delete a group
+     * @param {string} id - Group ID
+     * @returns {boolean} True if deleted, false if not found
+     */
+    deleteGroup(id) {
+        const initialLength = this.groups.length;
+        this.groups = this.groups.filter(g => g.id !== id);
+
+        if (this.groups.length < initialLength) {
+            this.saveData('groups', this.groups);
+            return true;
+        }
+
+        return false;
     }
 
     getTransactions() {
