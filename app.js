@@ -10,7 +10,7 @@ class BudgetBuddy {
         // Data (will be migrated to DataStore in phases)
         // Phase 2 Session 1: accounts migrated to DataStore
         // Phase 2 Session 2: categories and groups migrated to DataStore
-        this.transactions = this.loadData('transactions') || [];
+        // Phase 2 Session 3: transactions migrated to DataStore
         this.payees = this.loadData('payees') || [];
         this.allocations = this.loadData('allocations') || {};
         this.tbbHistory = this.loadData('tbb_history') || {};
@@ -48,7 +48,7 @@ class BudgetBuddy {
     // ==================== DATA MIGRATION ====================
 
     checkOrphanedTransactions() {
-        const orphaned = this.transactions.filter(t => {
+        const orphaned = this.dataStore.getTransactions().filter(t => {
             const account = this.dataStore.getAccount(t.accountId);
             return !account;
         });
@@ -87,11 +87,9 @@ class BudgetBuddy {
 
         if (choice === '0') {
             // Delete orphaned transactions
-            this.transactions = this.transactions.filter(t => {
-                const account = this.dataStore.getAccount(t.accountId);
-                return account !== null;
+            orphanedTransactions.forEach(orphan => {
+                this.dataStore.deleteTransaction(orphan.id);
             });
-            this.saveData('transactions', this.transactions);
             alert(`Deleted ${orphanedTransactions.length} orphaned transactions.`);
             this.renderTransactions();
             this.updateDashboard();
@@ -99,12 +97,10 @@ class BudgetBuddy {
             // Reassign to selected account
             const targetAccount = this.dataStore.getAccounts()[accountIndex];
             orphanedTransactions.forEach(orphan => {
-                const idx = this.transactions.findIndex(t => t.id === orphan.id);
-                if (idx !== -1) {
-                    this.transactions[idx].accountId = targetAccount.id;
-                }
+                this.dataStore.updateTransaction(orphan.id, {
+                    accountId: targetAccount.id
+                });
             });
-            this.saveData('transactions', this.transactions);
             alert(`Reassigned ${orphanedTransactions.length} transactions to "${targetAccount.name}".`);
             this.renderTransactions();
             this.updateDashboard();
@@ -883,7 +879,7 @@ class BudgetBuddy {
     generateTransactionsCSV(dateFrom, dateTo) {
         const headers = ['Transaction ID', 'Split #', 'Date', 'Type', 'Payee', 'Account ID', 'Account Name', 'To Account ID', 'To Account Name', 'Total Amount', 'Category ID', 'Category Name', 'Split Amount', 'Notes'];
 
-        let transactions = this.transactions;
+        let transactions = this.dataStore.getTransactions();
 
         // Filter by date range if provided
         if (dateFrom) {
@@ -1170,7 +1166,8 @@ class BudgetBuddy {
                     this.dataStore.saveData('categories', []);
                 }
                 if (this.importData.transactions) {
-                    this.transactions = [];
+                    this.dataStore.transactions = [];
+                    this.dataStore.saveData('transactions', []);
                     this.payees = [];
                 }
                 if (this.importData.allocations) {
@@ -1191,7 +1188,7 @@ class BudgetBuddy {
             if (this.importData.transactions) {
                 console.log(`Calling importTransactions with ${this.importData.transactions.length} rows...`);
                 this.importTransactions(this.importData.transactions, mode);
-                console.log(`After importTransactions, this.transactions has ${this.transactions.length} items`);
+                console.log(`After importTransactions, dataStore has ${this.dataStore.transactions.length} items`);
             }
             if (this.importData.allocations) {
                 this.importAllocations(this.importData.allocations, mode);
@@ -1202,7 +1199,7 @@ class BudgetBuddy {
             // (avoiding multiple saves), so we save once here at the end
             this.dataStore.saveData('categories', this.dataStore.categories);
             this.dataStore.saveData('groups', this.dataStore.groups);
-            this.saveData('transactions', this.transactions);
+            this.dataStore.saveData('transactions', this.dataStore.transactions);
             this.saveData('allocations', this.allocations);
             this.saveData('payees', this.payees);
 
@@ -1373,7 +1370,7 @@ class BudgetBuddy {
                 let account = this.dataStore.getAccounts().find(a => a.name === firstRow['Account Name']);
 
                 // Auto-create account if it doesn't exist (Option B)
-                if (!account && firstRow['Account Name'].trim()) {
+                if (!account && firstRow['Account Name'] && firstRow['Account Name'].trim()) {
                     const newAccount = {
                         id: this.generateId(),
                         name: firstRow['Account Name'].trim(),
@@ -1402,7 +1399,7 @@ class BudgetBuddy {
                 let toAccount = this.dataStore.getAccounts().find(a => a.name === firstRow['To Account Name']);
 
                 // Auto-create to-account if it doesn't exist (for transfers)
-                if (!toAccount && firstRow['To Account Name'].trim()) {
+                if (!toAccount && firstRow['To Account Name'] && firstRow['To Account Name'].trim()) {
                     const newAccount = {
                         id: this.generateId(),
                         name: firstRow['To Account Name'].trim(),
@@ -1466,13 +1463,13 @@ class BudgetBuddy {
             }
 
             if (mode === 'merge') {
-                const existing = this.transactions.find(t => t.id === transaction.id);
+                const existing = this.dataStore.transactions.find(t => t.id === transaction.id);
                 if (!existing) {
-                    this.transactions.push(transaction);
+                    this.dataStore.transactions.push(transaction);
                     console.log(`Added transaction (merge mode): ${transaction.id}`);
                 }
             } else {
-                this.transactions.push(transaction);
+                this.dataStore.transactions.push(transaction);
                 console.log(`Added transaction (replace mode): ${transaction.id}`);
             }
         });
@@ -1545,7 +1542,7 @@ class BudgetBuddy {
         // Use cached version if available
         if (!this.uiState.getSpendingMapCache()) {
             const spentMap = {};
-            this.transactions.forEach(t => {
+            this.dataStore.getTransactions().forEach(t => {
                 if (!t.splits) return;
                 const parts = t.date.split('-');
                 const tYear = parseInt(parts[0], 10);
@@ -1969,15 +1966,18 @@ class BudgetBuddy {
         const affectedMonths = new Set();
 
         // Reverse balance effects of deleted transactions
-        this.transactions.forEach(t => {
+        this.dataStore.getTransactions().forEach(t => {
             if (this.uiState.getSelectedTransactions().has(t.id)) {
                 this.applyTransactionEffect(t, -1);
                 const [tYear, tMonth] = t.date.split('-');
                 affectedMonths.add(`${tYear}-${parseInt(tMonth) - 1}`);
             }
         });
-        this.transactions = this.transactions.filter(t => !this.uiState.getSelectedTransactions().has(t.id));
-        this.saveData('transactions', this.transactions);
+
+        // Delete transactions from DataStore
+        this.uiState.getSelectedTransactions().forEach(id => {
+            this.dataStore.deleteTransaction(id);
+        });
 
         // Invalidate TBB cache for affected months
         affectedMonths.forEach(monthKey => {
@@ -2045,20 +2045,25 @@ class BudgetBuddy {
         }
 
         // Apply changes
-        this.transactions.forEach(t => {
+        this.dataStore.getTransactions().forEach(t => {
             if (this.uiState.getSelectedTransactions().has(t.id)) {
+                const updates = {};
                 if (accountValue) {
                     // Reverse old effect, update account, reapply
                     this.applyTransactionEffect(t, -1);
+                    updates.accountId = accountValue;
+                    // Need to update the transaction object for reapply
                     t.accountId = accountValue;
                     this.applyTransactionEffect(t, 1);
                 }
-                if (dateValue) t.date = dateValue;
-                t.updatedAt = new Date().toISOString();
+                if (dateValue) {
+                    updates.date = dateValue;
+                }
+
+                // Update in DataStore
+                this.dataStore.updateTransaction(t.id, updates);
             }
         });
-
-        this.saveData('transactions', this.transactions);
 
         // Invalidate spending map cache if transactions modified
         this.uiState.invalidateSpendingCache();
@@ -2074,7 +2079,7 @@ class BudgetBuddy {
     }
 
     getFilteredTransactions() {
-        let filtered = this.transactions;
+        let filtered = this.dataStore.getTransactions();
         const filterAccounts = this.uiState.getFilterAccounts();
         if (filterAccounts.length > 0) {
             filtered = filtered.filter(t =>
@@ -2149,7 +2154,7 @@ class BudgetBuddy {
         this.renderSidebarAccountList();
         const container = document.getElementById('transactions-list');
 
-        if (this.transactions.length === 0) {
+        if (this.dataStore.getTransactions().length === 0) {
             container.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">💸</div>
@@ -2360,7 +2365,7 @@ class BudgetBuddy {
         if (transactionId) {
             // Edit mode
             title.textContent = 'Edit Transaction';
-            const transaction = this.transactions.find(t => t.id === transactionId);
+            const transaction = this.dataStore.getTransaction(transactionId);
             if (transaction) {
                 document.getElementById('transaction-date').value = transaction.date;
                 document.getElementById('transaction-type').value = transaction.type;
@@ -2704,8 +2709,8 @@ class BudgetBuddy {
 
         if (this.currentTransactionId) {
             // Update existing transaction
-            const transactionIndex = this.transactions.findIndex(t => t.id === this.currentTransactionId);
-            if (transactionIndex === -1) {
+            const oldTransaction = this.dataStore.getTransaction(this.currentTransactionId);
+            if (!oldTransaction) {
                 alert('Error: Transaction not found. It may have been deleted.');
                 this.closeTransactionModal();
                 this.renderTransactions();
@@ -2713,10 +2718,10 @@ class BudgetBuddy {
             }
 
             // Reverse the old transaction's effect on balances
-            this.applyTransactionEffect(this.transactions[transactionIndex], -1);
+            this.applyTransactionEffect(oldTransaction, -1);
 
-            this.transactions[transactionIndex] = {
-                ...this.transactions[transactionIndex],
+            // Update transaction in DataStore
+            const updatedTransaction = this.dataStore.updateTransaction(this.currentTransactionId, {
                 date,
                 type,
                 payee: type === 'transfer' ? '' : payee,
@@ -2724,34 +2729,27 @@ class BudgetBuddy {
                 totalAmount,
                 notes,
                 splits,
-                toAccountId,
-                updatedAt: new Date().toISOString()
-            };
+                toAccountId
+            });
 
             // Apply the updated transaction's effect
-            this.applyTransactionEffect(this.transactions[transactionIndex], 1);
+            this.applyTransactionEffect(updatedTransaction, 1);
         } else {
             // Create new transaction
-            const newTransaction = {
-                id: this.generateId(),
+            const newTransaction = this.dataStore.addTransaction({
                 date,
                 type,
-                payee: type === 'transfer' ? '' : payee,
+                payee,
                 accountId,
                 totalAmount,
                 notes,
                 splits,
-                toAccountId,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            };
-            this.transactions.push(newTransaction);
+                toAccountId
+            });
 
             // Apply the new transaction's effect on balances
             this.applyTransactionEffect(newTransaction, 1);
         }
-
-        this.saveData('transactions', this.transactions);
 
         // Invalidate TBB cache for transaction month
         const [tYear, tMonth] = date.split('-');
@@ -2858,7 +2856,7 @@ class BudgetBuddy {
         }
 
         // Check if transactions or filters changed
-        const transactionsHash = this.uiState.simpleHash(this.transactions);
+        const transactionsHash = this.uiState.simpleHash(this.dataStore.getTransactions());
         const filterState = JSON.stringify({
             accounts: this.uiState.getDashFilterAccounts(),
             categories: this.uiState.getDashFilterCategories(),
@@ -2892,7 +2890,7 @@ class BudgetBuddy {
 
         // Calculate total income received up to and including this month
         const incomeAmounts = [];
-        this.transactions.forEach(t => {
+        this.dataStore.getTransactions().forEach(t => {
             if (t.type !== 'income') return;
             const [tYear, tMonthStr] = t.date.split('-');
             const tDate = parseInt(tYear) * 12 + parseInt(tMonthStr) - 1;
@@ -2975,7 +2973,7 @@ class BudgetBuddy {
      */
     getCategorySpent(categoryId, year, month) {
         let spent = 0;
-        this.transactions.forEach(t => {
+        this.dataStore.getTransactions().forEach(t => {
             if (!t.splits) return;
             const [tYear, tMonthStr] = t.date.split('-');
             if (parseInt(tYear) === year && parseInt(tMonthStr) - 1 === month) {
@@ -3097,7 +3095,7 @@ class BudgetBuddy {
 
         // Filter: expenses in date range from selected accounts
         const { start, end } = this.getDashDateRange();
-        const filtered = this.transactions.filter(t =>
+        const filtered = this.dataStore.getTransactions().filter(t =>
             t.type === 'expense' &&
             (this.uiState.getDashFilterAccounts().length === 0 || this.uiState.getDashFilterAccounts().includes(t.accountId)) &&
             t.date >= start && t.date <= end
@@ -3315,7 +3313,7 @@ class BudgetBuddy {
         if (this.uiState.getDashFilterDateRange() === 'all-time') {
             const now = new Date();
             end = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate())}`;
-            const relevant = this.transactions.filter(t => {
+            const relevant = this.dataStore.getTransactions().filter(t => {
                 if (this.uiState.getDashFilterAccounts().length > 0 && !this.uiState.getDashFilterAccounts().includes(t.accountId)) return false;
                 return t.type === 'expense' || t.type === 'income';
             });
@@ -3338,7 +3336,7 @@ class BudgetBuddy {
         const incomeByDay = {};
         days.forEach(d => { expenseByDay[d] = 0; incomeByDay[d] = 0; });
 
-        this.transactions.forEach(t => {
+        this.dataStore.getTransactions().forEach(t => {
             if (this.uiState.getDashFilterAccounts().length > 0 && !this.uiState.getDashFilterAccounts().includes(t.accountId)) return;
             if (t.type !== 'expense' && t.type !== 'income') return;
             if (!(t.date in expenseByDay)) return;

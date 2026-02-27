@@ -312,9 +312,113 @@ class DataStore {
         return false;
     }
 
+    // ==================== TRANSACTIONS ====================
+
+    /**
+     * Get all transactions
+     * @returns {Array} Copy of transactions array
+     */
     getTransactions() {
         return [...this.transactions];
     }
+
+    /**
+     * Get a single transaction by ID
+     * @param {string} id - Transaction ID
+     * @returns {Object|null} Transaction object or null if not found
+     */
+    getTransaction(id) {
+        const transaction = this.transactions.find(t => t.id === id);
+        return transaction ? { ...transaction } : null;
+    }
+
+    /**
+     * Add a new transaction
+     * Note: Does NOT update account balances - caller must handle balance effects
+     * @param {Object} transactionData - Transaction data
+     * @returns {Object} The created transaction
+     */
+    addTransaction(transactionData) {
+        const {
+            date,
+            type,
+            payee,
+            accountId,
+            totalAmount,
+            notes,
+            splits,
+            toAccountId
+        } = transactionData;
+
+        // Validation
+        if (!date || !type || !accountId || !totalAmount) {
+            throw new Error('Required transaction fields missing');
+        }
+
+        const newTransaction = {
+            id: this.generateId(),
+            date,
+            type,
+            payee: type === 'transfer' ? '' : (payee || ''),
+            accountId,
+            totalAmount: parseFloat(totalAmount),
+            notes: notes || '',
+            splits: splits || [],
+            toAccountId: toAccountId || null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        this.transactions.push(newTransaction);
+        this.saveData('transactions', this.transactions);
+
+        return { ...newTransaction };
+    }
+
+    /**
+     * Update an existing transaction
+     * Note: Does NOT update account balances - caller must handle balance effects
+     * @param {string} id - Transaction ID
+     * @param {Object} updates - Fields to update
+     * @returns {Object|null} Updated transaction or null if not found
+     */
+    updateTransaction(id, updates) {
+        const index = this.transactions.findIndex(t => t.id === id);
+        if (index === -1) return null;
+
+        // Update allowed fields
+        const allowedFields = ['date', 'type', 'payee', 'accountId', 'totalAmount', 'notes', 'splits', 'toAccountId'];
+        allowedFields.forEach(field => {
+            if (updates[field] !== undefined) {
+                this.transactions[index][field] = updates[field];
+            }
+        });
+
+        this.transactions[index].updatedAt = new Date().toISOString();
+        this.saveData('transactions', this.transactions);
+
+        return { ...this.transactions[index] };
+    }
+
+    /**
+     * Delete a transaction
+     * Note: Does NOT update account balances - caller must handle balance effects
+     * @param {string} id - Transaction ID
+     * @returns {boolean} True if deleted, false if not found
+     */
+    deleteTransaction(id) {
+        const initialLength = this.transactions.length;
+        this.transactions = this.transactions.filter(t => t.id !== id);
+
+        if (this.transactions.length < initialLength) {
+            this.saveData('transactions', this.transactions);
+            return true;
+        }
+
+        return false;
+    }
+
+    // ==================== OTHER DATA ====================
 
     getPayees() {
         return [...this.payees];
