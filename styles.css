@@ -387,6 +387,14 @@ button {
     align-items: stretch;
 }
 
+/* Stack dashboard charts vertically on smaller screens */
+@media (max-width: 1200px) {
+    .dashboard-top-row {
+        grid-template-columns: 1fr;
+        gap: 24px;
+    }
+}
+
 .dashboard-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));

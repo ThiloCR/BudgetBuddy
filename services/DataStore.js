@@ -418,17 +418,151 @@ class DataStore {
         return false;
     }
 
-    // ==================== OTHER DATA ====================
+    // ==================== PAYEES ====================
 
+    /**
+     * Get all payees
+     * @returns {Array} Copy of payees array
+     */
     getPayees() {
         return [...this.payees];
     }
 
+    /**
+     * Add a payee if it doesn't already exist
+     * @param {string} name - Payee name
+     * @returns {boolean} True if added, false if already exists
+     */
+    addPayee(name) {
+        if (!name || typeof name !== 'string') {
+            throw new Error('Payee name must be a non-empty string');
+        }
+
+        const trimmedName = name.trim();
+        if (!this.payees.includes(trimmedName)) {
+            this.payees.push(trimmedName);
+            this.saveData('payees', this.payees);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Delete a payee
+     * @param {string} name - Payee name
+     * @returns {boolean} True if deleted, false if not found
+     */
+    deletePayee(name) {
+        const initialLength = this.payees.length;
+        this.payees = this.payees.filter(p => p !== name);
+
+        if (this.payees.length < initialLength) {
+            this.saveData('payees', this.payees);
+            return true;
+        }
+
+        return false;
+    }
+
+    // ==================== ALLOCATIONS ====================
+
+    /**
+     * Get all allocations
+     * @returns {Object} Copy of allocations object
+     */
     getAllocations() {
         return { ...this.allocations };
     }
 
+    /**
+     * Get a specific allocation
+     * @param {string} key - Allocation key (categoryId-year-month)
+     * @returns {number|null} Allocation amount or null if not found
+     */
+    getAllocation(key) {
+        return this.allocations[key] !== undefined ? this.allocations[key] : null;
+    }
+
+    /**
+     * Set an allocation
+     * @param {string} key - Allocation key (categoryId-year-month)
+     * @param {number} amount - Allocation amount
+     */
+    setAllocation(key, amount) {
+        this.allocations[key] = parseFloat(amount);
+        this.saveData('allocations', this.allocations);
+    }
+
+    /**
+     * Delete an allocation
+     * @param {string} key - Allocation key
+     * @returns {boolean} True if deleted, false if not found
+     */
+    deleteAllocation(key) {
+        if (this.allocations[key] !== undefined) {
+            delete this.allocations[key];
+            this.saveData('allocations', this.allocations);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Clear all allocations
+     */
+    clearAllocations() {
+        this.allocations = {};
+        this.saveData('allocations', this.allocations);
+    }
+
+    // ==================== TBB HISTORY (CACHE) ====================
+
+    /**
+     * Get TBB history cache
+     * @returns {Object} Copy of tbbHistory object
+     */
     getTBBHistory() {
         return { ...this.tbbHistory };
+    }
+
+    /**
+     * Get a specific TBB history entry
+     * @param {string} key - Cache key (year-month)
+     * @returns {Object|null} TBB data or null if not found
+     */
+    getTBBHistoryEntry(key) {
+        return this.tbbHistory[key] ? { ...this.tbbHistory[key] } : null;
+    }
+
+    /**
+     * Set a TBB history entry
+     * @param {string} key - Cache key (year-month)
+     * @param {Object} value - TBB data
+     */
+    setTBBHistoryEntry(key, value) {
+        this.tbbHistory[key] = value;
+        this.saveData('tbb_history', this.tbbHistory);
+    }
+
+    /**
+     * Delete a TBB history entry
+     * @param {string} key - Cache key
+     * @returns {boolean} True if deleted, false if not found
+     */
+    deleteTBBHistoryEntry(key) {
+        if (this.tbbHistory[key] !== undefined) {
+            delete this.tbbHistory[key];
+            this.saveData('tbb_history', this.tbbHistory);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Clear all TBB history
+     */
+    clearTBBHistory() {
+        this.tbbHistory = {};
+        this.saveData('tbb_history', this.tbbHistory);
     }
 }

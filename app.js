@@ -7,13 +7,11 @@ class BudgetBuddy {
         this.uiState = new UIStateManager();
         this.dataStore = new DataStore();
 
-        // Data (will be migrated to DataStore in phases)
+        // All data now managed by DataStore
         // Phase 2 Session 1: accounts migrated to DataStore
         // Phase 2 Session 2: categories and groups migrated to DataStore
         // Phase 2 Session 3: transactions migrated to DataStore
-        this.payees = this.loadData('payees') || [];
-        this.allocations = this.loadData('allocations') || {};
-        this.tbbHistory = this.loadData('tbb_history') || {};
+        // Phase 2 Session 4: payees, allocations, tbbHistory migrated to DataStore
 
         // Current editing state
         this.currentAccountId = null;
@@ -38,11 +36,26 @@ class BudgetBuddy {
         this.setupDataManagement();
         this.setupSettingsNav();
         this.setupGlobalDropdownHandler();
+        this.setupChartResizeHandler();
         this.renderCategories();
         this.updateDashboard();
 
         // Check for orphaned transactions (transactions with invalid accountIds)
         this.checkOrphanedTransactions();
+    }
+
+    setupChartResizeHandler() {
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                // Only re-render if dashboard is active
+                const dashboardView = document.getElementById('dashboard-view');
+                if (dashboardView && dashboardView.classList.contains('active')) {
+                    this.renderTrendChart();
+                }
+            }, 250);
+        });
     }
 
     // ==================== DATA MIGRATION ====================
@@ -216,6 +229,12 @@ class BudgetBuddy {
         // Update data when switching to certain views
         if (viewName === 'dashboard') {
             this.updateDashboard();
+            // Re-render charts after layout settles to ensure correct sizing
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    this.renderTrendChart();
+                }, 50);
+            });
         } else if (viewName === 'categories') {
             this.renderCategories();
         } else if (viewName === 'transactions') {
@@ -557,7 +576,7 @@ class BudgetBuddy {
 
         // Get current values
         const allocKey = `${categoryId}-${year}-${month}`;
-        const currentAllocation = this.allocations[allocKey] || 0;
+        const currentAllocation = this.dataStore.getAllocation(allocKey) || 0;
         const available = this.calculateAvailableFunds(year, month);
         const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
                            'July', 'August', 'September', 'October', 'November', 'December'];
@@ -572,7 +591,28 @@ class BudgetBuddy {
         // Update quick action buttons
         const limitValue = category.monthlyLimit || 0;
         document.getElementById('allocate-limit-value').textContent = limitValue;
-        document.getElementById('allocate-use-limit').style.display = limitValue > 0 ? '' : 'none';
+
+        const useLimitBtn = document.getElementById('allocate-use-limit');
+        const useAvailableBtn = document.getElementById('allocate-use-available');
+        useLimitBtn.style.display = limitValue > 0 ? '' : 'none';
+
+        // Remove old event listeners by cloning and replacing
+        const newUseLimitBtn = useLimitBtn.cloneNode(true);
+        const newUseAvailableBtn = useAvailableBtn.cloneNode(true);
+        useLimitBtn.parentNode.replaceChild(newUseLimitBtn, useLimitBtn);
+        useAvailableBtn.parentNode.replaceChild(newUseAvailableBtn, useAvailableBtn);
+
+        // Add fresh event listeners
+        newUseLimitBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.useMonthlyLimit();
+        });
+        newUseAvailableBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.useAllAvailable();
+        });
 
         modal.classList.add('active');
         document.getElementById('allocate-amount').focus();
@@ -598,18 +638,21 @@ class BudgetBuddy {
         // Save allocation
         const allocKey = `${categoryId}-${year}-${month}`;
         if (amount === 0) {
-            delete this.allocations[allocKey];
+            this.dataStore.deleteAllocation(allocKey);
         } else {
-            this.allocations[allocKey] = amount;
+            this.dataStore.setAllocation(allocKey, amount);
         }
 
-        this.saveData('allocations', this.allocations);
         this.invalidateTBBCache(year, month);
         this.closeAllocateModal();
         this.renderCategories();
     }
 
     useMonthlyLimit() {
+        if (!this.currentAllocation) {
+            console.error('currentAllocation is null');
+            return;
+        }
         const category = this.dataStore.getCategories().find(c => c.id === this.currentAllocation.categoryId);
         if (category && category.monthlyLimit) {
             document.getElementById('allocate-amount').value = category.monthlyLimit;
@@ -631,14 +674,13 @@ class BudgetBuddy {
         this.dataStore.getCategories().forEach(cat => {
             if (cat.monthlyLimit && cat.monthlyLimit > 0) {
                 const allocKey = `${cat.id}-${year}-${month}`;
-                this.allocations[allocKey] = cat.monthlyLimit;
+                this.dataStore.setAllocation(allocKey, cat.monthlyLimit);
                 allocated++;
             }
         });
 
         if (allocated > 0) {
-            this.saveData('allocations', this.allocations);
-            this.invalidateTBBCache(year, month);
+                this.invalidateTBBCache(year, month);
             this.renderCategories();
             alert(`Auto-allocated ${allocated} categories using their monthly limits.`);
         } else {
@@ -667,14 +709,13 @@ class BudgetBuddy {
             this.dataStore.getCategories().forEach(cat => {
                 if (cat.monthlyLimit && cat.monthlyLimit > 0) {
                     const allocKey = `${cat.id}-${year}-${month}`;
-                    this.allocations[allocKey] = cat.monthlyLimit;
+                    this.dataStore.setAllocation(allocKey, cat.monthlyLimit);
                     allocated++;
                 }
             });
 
             if (allocated > 0) {
-                this.saveData('allocations', this.allocations);
-                this.invalidateTBBCache(year, month);
+                        this.invalidateTBBCache(year, month);
                 this.renderCategories();
                 alert(`Auto-allocated ${allocated} categories.`);
             } else {
@@ -686,11 +727,10 @@ class BudgetBuddy {
             if (perCategory > 0) {
                 this.dataStore.getCategories().forEach(cat => {
                     const allocKey = `${cat.id}-${year}-${month}`;
-                    this.allocations[allocKey] = perCategory;
+                    this.dataStore.setAllocation(allocKey, perCategory);
                 });
 
-                this.saveData('allocations', this.allocations);
-                this.invalidateTBBCache(year, month);
+                        this.invalidateTBBCache(year, month);
                 this.renderCategories();
                 alert(`Allocated ${this.moneyService.formatCurrency(perCategory)} to each of ${this.dataStore.getCategories().length} categories.`);
             } else {
@@ -711,8 +751,16 @@ class BudgetBuddy {
         closeBtn.addEventListener('click', () => this.closeAllocateModal());
         cancelBtn.addEventListener('click', () => this.closeAllocateModal());
         saveBtn.addEventListener('click', () => this.saveAllocation());
-        useLimitBtn.addEventListener('click', () => this.useMonthlyLimit());
-        useAvailableBtn.addEventListener('click', () => this.useAllAvailable());
+        useLimitBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.useMonthlyLimit();
+        });
+        useAvailableBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.useAllAvailable();
+        });
         autoAllocateBtn.addEventListener('click', () => this.autoAllocateAll());
 
         // Keyboard shortcuts
@@ -944,10 +992,10 @@ class BudgetBuddy {
         const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
         const rows = [];
-        Object.keys(this.allocations).forEach(key => {
+        Object.keys(this.dataStore.getAllocations()).forEach(key => {
             const [categoryId, year, month] = key.split('-');
             const category = this.dataStore.getCategories().find(c => c.id === categoryId);
-            const amount = this.allocations[key];
+            const amount = this.dataStore.getAllocation(key);
 
             rows.push([
                 categoryId,
@@ -1168,10 +1216,11 @@ class BudgetBuddy {
                 if (this.importData.transactions) {
                     this.dataStore.transactions = [];
                     this.dataStore.saveData('transactions', []);
-                    this.payees = [];
+                    this.dataStore.payees = [];
+                    this.dataStore.saveData('payees', []);
                 }
                 if (this.importData.allocations) {
-                    this.allocations = {};
+                    this.dataStore.clearAllocations();
                 }
             }
 
@@ -1200,8 +1249,8 @@ class BudgetBuddy {
             this.dataStore.saveData('categories', this.dataStore.categories);
             this.dataStore.saveData('groups', this.dataStore.groups);
             this.dataStore.saveData('transactions', this.dataStore.transactions);
-            this.saveData('allocations', this.allocations);
-            this.saveData('payees', this.payees);
+            this.dataStore.saveData('allocations', this.dataStore.allocations);
+            this.dataStore.saveData('payees', this.dataStore.payees);
 
             // Refresh UI
             this.renderCategories();
@@ -1458,8 +1507,8 @@ class BudgetBuddy {
             // Debug: Log successful import
             console.log(`Importing transaction: ${transaction.date} ${transaction.type} ${transaction.totalAmount} for account ${accountId}`);
 
-            if (transaction.payee && !this.payees.includes(transaction.payee)) {
-                this.payees.push(transaction.payee);
+            if (transaction.payee && !this.dataStore.payees.includes(transaction.payee)) {
+                this.dataStore.payees.push(transaction.payee);
             }
 
             if (mode === 'merge') {
@@ -1495,11 +1544,11 @@ class BudgetBuddy {
             const key = `${categoryId}-${year}-${month}`;
 
             if (mode === 'merge') {
-                if (!this.allocations[key]) {
-                    this.allocations[key] = amount;
+                if (!this.dataStore.getAllocation(key)) {
+                    this.dataStore.setAllocation(key, amount);
                 }
             } else {
-                this.allocations[key] = amount;
+                this.dataStore.setAllocation(key, amount);
             }
         });
     }
@@ -1686,7 +1735,7 @@ class BudgetBuddy {
             let thisMonthAllocated = 0;
             this.dataStore.getCategories().forEach(cat => {
                 const allocKey = `${cat.id}-${m.year}-${m.month}`;
-                thisMonthAllocated += this.allocations[allocKey] || 0;
+                thisMonthAllocated += this.dataStore.getAllocation(allocKey) || 0;
             });
 
             const available = tbbBeforeMonth.available;
@@ -2348,7 +2397,7 @@ class BudgetBuddy {
         // Populate payees datalist
         const payeeList = document.getElementById('payee-list');
         payeeList.innerHTML = '';
-        this.payees.forEach(payee => {
+        this.dataStore.getPayees().forEach(payee => {
             const option = document.createElement('option');
             option.value = payee;
             payeeList.appendChild(option);
@@ -2702,9 +2751,8 @@ class BudgetBuddy {
         const { date, type, payee, accountId, totalAmount, notes } = data;
 
         // Save payee if new
-        if (payee && !this.payees.includes(payee)) {
-            this.payees.push(payee);
-            this.saveData('payees', this.payees);
+        if (payee) {
+            this.dataStore.addPayee(payee);
         }
 
         if (this.currentTransactionId) {
@@ -2774,7 +2822,7 @@ class BudgetBuddy {
             // Refresh payees datalist with updated list
             const payeeList = document.getElementById('payee-list');
             payeeList.innerHTML = '';
-            this.payees.forEach(payee => {
+            this.dataStore.getPayees().forEach(payee => {
                 const option = document.createElement('option');
                 option.value = payee;
                 payeeList.appendChild(option);
@@ -2903,12 +2951,12 @@ class BudgetBuddy {
 
         // Calculate total allocated up to and including this month
         const allocatedAmounts = [];
-        Object.keys(this.allocations).forEach(key => {
+        Object.keys(this.dataStore.getAllocations()).forEach(key => {
             const [catId, year, month] = key.split('-');
             const allocDate = parseInt(year) * 12 + parseInt(month);
             const upToDate = upToYear * 12 + upToMonth;
             if (allocDate <= upToDate) {
-                allocatedAmounts.push(this.allocations[key]);
+                allocatedAmounts.push(this.dataStore.getAllocation(key));
             }
         });
         const totalAllocated = this.moneyService.moneySum(allocatedAmounts);
@@ -2917,7 +2965,7 @@ class BudgetBuddy {
         let totalOverspending = 0;
         // Get all unique months that have been budgeted
         const budgetedMonths = new Set();
-        Object.keys(this.allocations).forEach(key => {
+        Object.keys(this.dataStore.getAllocations()).forEach(key => {
             const [catId, year, month] = key.split('-');
             budgetedMonths.add(`${year}-${month}`);
         });
@@ -2965,7 +3013,7 @@ class BudgetBuddy {
      */
     getCategoryBudget(categoryId, year, month) {
         const key = `${categoryId}-${year}-${month}`;
-        return this.allocations[key] || 0;
+        return this.dataStore.getAllocation(key) || 0;
     }
 
     /**
