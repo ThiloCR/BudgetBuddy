@@ -808,6 +808,50 @@ class BudgetBuddy {
         importModal.addEventListener('click', (e) => {
             if (e.target === importModal) this.closeImportModal();
         });
+
+        // Load demo data
+        const demoBtn = document.getElementById('load-demo-btn');
+        if (demoBtn) demoBtn.addEventListener('click', () => this.loadDemoData());
+    }
+
+    /**
+     * Replace all current data with a generated fictional demo dataset.
+     * Powers the "Load Demo Data" button so the live site looks populated.
+     */
+    loadDemoData() {
+        if (typeof DemoData === 'undefined') {
+            alert('Demo data is unavailable.');
+            return;
+        }
+        if (!confirm('Load demo data? This replaces all data currently stored in this browser.')) {
+            return;
+        }
+
+        const demo = DemoData.generate();
+        const ds = this.dataStore;
+
+        ds.accounts = demo.accounts;
+        ds.groups = demo.groups;
+        ds.categories = demo.categories;
+        ds.transactions = demo.transactions;
+        ds.payees = demo.payees;
+        ds.allocations = demo.allocations;
+
+        ds.saveData('accounts', ds.accounts);
+        ds.saveData('groups', ds.groups);
+        ds.saveData('categories', ds.categories);
+        ds.saveData('transactions', ds.transactions);
+        ds.saveData('payees', ds.payees);
+        ds.saveData('allocations', ds.allocations);
+
+        ds.clearTBBHistory();
+        this.tbbCache = {};
+
+        this.renderCategories();
+        this.renderTransactions();
+        this.updateDashboard();
+
+        alert('Demo data loaded! Explore the Dashboard, Budget, and Transactions.');
     }
 
     openExportModal() {
