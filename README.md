@@ -2,7 +2,7 @@
 
 A personal finance tracker that makes it easy to keep track of your money. BudgetBuddy is a fast, fully client‑side budgeting app — accounts, envelope‑style budgets, transactions, and spending insights, all running in your browser with no server and no sign‑up.
 
-**🔗 Live demo:** _coming soon_ &nbsp;·&nbsp; **Demo data:** load a sample dataset from **Settings → Data** to explore the app instantly.
+**🔗 Live demo:** https://thilocr.github.io/BudgetBuddy/ &nbsp;·&nbsp; **Demo data:** load a sample dataset from **Settings → Data** to explore the app instantly.
 
 > ⚠️ This is a personal portfolio project. All data is stored locally in your browser (`localStorage`) and never leaves your device.
 
