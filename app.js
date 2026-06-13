@@ -3179,10 +3179,10 @@ class BudgetBuddy {
         const legendContainer = document.getElementById('spending-chart-legend');
         const totalContainer = document.getElementById('spending-chart-total');
 
+        // Distinct, well-spaced categorical palette (reads on light + dark)
         const categoryPalette = [
-            '#2563EB', '#059669', '#DC2626', '#D97706', '#7C3AED',
-            '#0D9488', '#E11D48', '#4338CA', '#65A30D', '#EA580C',
-            '#6366F1', '#14B8A6'
+            '#10B981', '#3B82F6', '#F59E0B', '#8B5CF6', '#F43F5E', '#14B8A6',
+            '#6366F1', '#FB923C', '#06B6D4', '#EC4899', '#84CC16', '#64748B'
         ];
 
         // Filter: expenses in date range from selected accounts
@@ -3215,68 +3215,213 @@ class BudgetBuddy {
         const total = data.reduce((sum, d) => sum + d.amount, 0);
 
         if (data.length === 0) {
+            this._spending = null;
             layout.style.display = 'none';
             totalContainer.innerHTML = '<div class="chart-empty">No spending data for this period</div>';
             return;
         }
 
         layout.style.display = '';
+        totalContainer.innerHTML = '';
 
-        // Draw pie on canvas
-        const size = 240;
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = size * dpr;
-        canvas.height = size * dpr;
-        canvas.style.width = size + 'px';
-        canvas.style.height = size + 'px';
+        // Group all but the top 10 into a collapsible "Other" slice
+        const TOP = 10;
+        let chartData = data;
+        let otherChildren = null;
+        if (data.length > TOP + 1) {
+            const rest = data.slice(TOP);
+            const otherAmount = Math.round(rest.reduce((sum, d) => sum + d.amount, 0) * 100) / 100;
+            otherChildren = rest;
+            chartData = [...data.slice(0, TOP), { name: 'Other', amount: otherAmount, color: '#94A3B8', _isOther: true }];
+        }
 
-        const ctx = canvas.getContext('2d');
-        ctx.scale(dpr, dpr);
-        ctx.clearRect(0, 0, size, size);
+        // Donut geometry + precomputed angle ranges
+        const size = 192;
+        const cx = size / 2, cy = size / 2;
+        const r = size / 2 - 6;
+        const innerR = r * 0.62;
 
-        const cx = size / 2, cy = size / 2, r = size / 2 - 6;
-        let startAngle = -Math.PI / 2;
-
-        data.forEach(item => {
-            const sliceAngle = (item.amount / total) * 2 * Math.PI;
-
-            ctx.beginPath();
-            if (data.length > 1) ctx.moveTo(cx, cy);
-            ctx.arc(cx, cy, r, startAngle, startAngle + sliceAngle);
-            if (data.length > 1) ctx.closePath();
-            ctx.fillStyle = item.color;
-            ctx.fill();
-
-            // Percentage label on slice (only if slice is large enough to fit text)
-            const pct = (item.amount / total) * 100;
-            if (pct >= 6) {
-                const mid = startAngle + sliceAngle / 2;
-                ctx.fillStyle = this.getPieTextColor(item.color);
-                ctx.font = 'bold 13px Inter, sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(
-                    pct.toFixed(1) + '%',
-                    cx + r * 0.6 * Math.cos(mid),
-                    cy + r * 0.6 * Math.sin(mid)
-                );
-            }
-
-            startAngle += sliceAngle;
+        let a = -Math.PI / 2;
+        chartData.forEach(item => {
+            const sweep = total > 0 ? (item.amount / total) * 2 * Math.PI : 0;
+            item._a0 = a; item._a1 = a + sweep; a += sweep;
         });
 
-        // Legend
-        legendContainer.innerHTML = data.map(item => {
-            const pct = ((item.amount / total) * 100).toFixed(1);
-            return `<div class="legend-item">
-                <span class="legend-dot" style="background-color: ${item.color}"></span>
-                <span class="legend-name">${this.escapeHtml(item.name)}</span>
-                <span class="legend-value">${this.moneyService.formatCurrency(item.amount)}</span>
-                <span class="legend-percent">${pct}%</span>
-            </div>`;
-        }).join('');
+        this._spending = { canvas, data: chartData, total, cx, cy, r, innerR, size, hover: -1 };
 
-        totalContainer.innerHTML = `Total Spending: <strong>${this.moneyService.formatCurrency(total)}</strong>`;
+        this._drawSpending = () => {
+            const s = this._spending;
+            if (!s) return;
+            const theme = this.getChartTheme();
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = s.size * dpr;
+            canvas.height = s.size * dpr;
+            canvas.style.width = s.size + 'px';
+            canvas.style.height = s.size + 'px';
+            const ctx = canvas.getContext('2d');
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, s.size, s.size);
+
+            // Slices
+            s.data.forEach((item, i) => {
+                const active = s.hover === i;
+                const rr = active ? s.r + 6 : s.r;
+                ctx.globalAlpha = (s.hover !== -1 && !active) ? 0.3 : 1;
+                ctx.beginPath();
+                ctx.moveTo(s.cx, s.cy);
+                ctx.arc(s.cx, s.cy, rr, item._a0, item._a1);
+                ctx.closePath();
+                ctx.fillStyle = item.color;
+                ctx.fill();
+            });
+            ctx.globalAlpha = 1;
+
+            // Surface-coloured separators between slices (only if >1)
+            if (s.data.length > 1) {
+                ctx.strokeStyle = theme.surface;
+                ctx.lineWidth = 2.5;
+                s.data.forEach(item => {
+                    ctx.beginPath();
+                    ctx.moveTo(s.cx, s.cy);
+                    ctx.lineTo(s.cx + s.r * Math.cos(item._a0), s.cy + s.r * Math.sin(item._a0));
+                    ctx.stroke();
+                });
+            }
+
+            // Punch the donut hole (transparent → card shows through)
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.beginPath();
+            ctx.arc(s.cx, s.cy, s.innerR, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Center readout
+            const h = s.hover !== -1 ? s.data[s.hover] : null;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'alphabetic';
+            if (h) {
+                const pct = ((h.amount / s.total) * 100).toFixed(1);
+                ctx.fillStyle = theme.text3;
+                ctx.font = this.chartFont(10, 700);
+                ctx.fillText(this.truncateText(ctx, h.name, s.innerR * 1.7).toUpperCase(), s.cx, s.cy - 15);
+                ctx.fillStyle = h.color;
+                ctx.font = this.chartFont(20, 700);
+                ctx.fillText(this.moneyService.formatCurrency(h.amount), s.cx, s.cy + 9);
+                ctx.fillStyle = theme.text3;
+                ctx.font = this.chartFont(11, 600);
+                ctx.fillText(pct + '%', s.cx, s.cy + 26);
+            } else {
+                ctx.fillStyle = theme.text3;
+                ctx.font = this.chartFont(10, 700);
+                ctx.fillText('TOTAL', s.cx, s.cy - 13);
+                ctx.fillStyle = theme.text;
+                ctx.font = this.chartFont(20, 700);
+                ctx.fillText(this.moneyService.formatCurrency(s.total), s.cx, s.cy + 12);
+            }
+        };
+
+        this._drawSpending();
+
+        // Legend + total sum line
+        const otherIdx = chartData.length - 1;
+        const otherOpen = !!this._spendingOtherOpen;
+        legendContainer.innerHTML = chartData.map((item, i) => {
+            const pct = ((item.amount / total) * 100).toFixed(1);
+            if (item._isOther) {
+                const children = otherChildren.map(c =>
+                    `<div class="legend-child" onmouseenter="app.setSpendingHover(${otherIdx})" onmouseleave="app.setSpendingHover(-1)">
+                        <span class="legend-name" title="${this.escapeHtml(c.name)}">${this.escapeHtml(c.name)}</span>
+                        <span class="legend-value">${this.moneyService.formatCurrency(c.amount)}</span>
+                    </div>`).join('');
+                return `<div class="legend-item legend-other" data-idx="${i}" onmouseenter="app.setSpendingHover(${i})" onmouseleave="app.setSpendingHover(-1)" onclick="app.toggleSpendingOther()">
+                    <span class="legend-dot" style="background-color: ${item.color}"></span>
+                    <span class="legend-name">Other <span class="legend-chevron${otherOpen ? ' open' : ''}"></span><span class="legend-other-count">${otherChildren.length}</span></span>
+                    <span class="legend-value">${this.moneyService.formatCurrency(item.amount)} <span class="legend-pct">${pct}%</span></span>
+                </div>
+                <div class="legend-children${otherOpen ? ' open' : ''}">${children}</div>`;
+            }
+            return `<div class="legend-item" data-idx="${i}" onmouseenter="app.setSpendingHover(${i})" onmouseleave="app.setSpendingHover(-1)">
+                <span class="legend-dot" style="background-color: ${item.color}"></span>
+                <span class="legend-name" title="${this.escapeHtml(item.name)}">${this.escapeHtml(item.name)}</span>
+                <span class="legend-value">${this.moneyService.formatCurrency(item.amount)} <span class="legend-pct">${pct}%</span></span>
+            </div>`;
+        }).join('') + `<div class="legend-total">
+                <span class="legend-total-label">Total Spending</span>
+                <span class="legend-total-value">${this.moneyService.formatCurrency(total)}</span>
+            </div>`;
+
+        // Canvas hover (bind once; reads latest this._spending)
+        if (!canvas._spendBound) {
+            canvas._spendBound = true;
+            canvas.addEventListener('mousemove', (e) => {
+                const s = this._spending;
+                if (!s) return;
+                const rect = canvas.getBoundingClientRect();
+                const dx = (e.clientX - rect.left) - s.cx;
+                const dy = (e.clientY - rect.top) - s.cy;
+                const dist = Math.hypot(dx, dy);
+                let idx = -1;
+                if (dist >= s.innerR - 2 && dist <= s.r + 8) {
+                    const ang = Math.atan2(dy, dx);
+                    s.data.forEach((item, i) => {
+                        let aa = ang;
+                        while (aa < item._a0) aa += 2 * Math.PI;
+                        if (aa >= item._a0 && aa < item._a1) idx = i;
+                    });
+                }
+                canvas.style.cursor = idx === -1 ? 'default' : 'pointer';
+                if (idx !== s.hover) this.setSpendingHover(idx);
+            });
+            canvas.addEventListener('mouseleave', () => this.setSpendingHover(-1));
+        }
+    }
+
+    // Expand/collapse the grouped "Other" categories in the spending legend.
+    toggleSpendingOther() {
+        this._spendingOtherOpen = !this._spendingOtherOpen;
+        this.renderSpendingChart();
+    }
+
+    // Highlights a spending-donut slice + its legend row (-1 clears).
+    setSpendingHover(i) {
+        if (!this._spending || this._spending.hover === i) return;
+        this._spending.hover = i;
+        if (this._drawSpending) this._drawSpending();
+        const legend = document.getElementById('spending-chart-legend');
+        if (legend) {
+            legend.querySelectorAll('.legend-item').forEach(el => {
+                el.classList.toggle('active', Number(el.dataset.idx) === i);
+            });
+        }
+    }
+
+    // Theme-aware chart colors pulled from the live CSS variables.
+    getChartTheme() {
+        const cs = getComputedStyle(document.documentElement);
+        const v = (n, fb) => (cs.getPropertyValue(n).trim() || fb);
+        return {
+            text:    v('--text', '#16211C'),
+            text2:   v('--text-2', '#5C6B64'),
+            text3:   v('--text-3', '#8A968F'),
+            border:  v('--border', '#E3E9E5'),
+            surface: v('--surface', '#FFFFFF'),
+            income:  v('--income', '#0E9E6E'),
+            danger:  v('--danger', '#D6453F'),
+            accent:  v('--accent', '#0E8C66')
+        };
+    }
+
+    // Canvas font string using the app's UI font so charts match the rest of the UI.
+    chartFont(px, weight = 400) {
+        const f = getComputedStyle(document.documentElement).getPropertyValue('--font-sans').trim() || 'sans-serif';
+        return `${weight} ${px}px ${f}`;
+    }
+
+    truncateText(ctx, text, maxWidth) {
+        if (ctx.measureText(text).width <= maxWidth) return text;
+        let t = text;
+        while (t.length > 1 && ctx.measureText(t + '…').width > maxWidth) t = t.slice(0, -1);
+        return t + '…';
     }
 
     getDashDateRange() {
@@ -3471,6 +3616,7 @@ class BudgetBuddy {
         const ctx = canvas.getContext('2d');
         ctx.scale(dpr, dpr);
         ctx.clearRect(0, 0, cssW, cssH);
+        const theme = this.getChartTheme();
 
         // Layout margins
         const pad = { top: 20, right: 24, bottom: 44, left: 64 };
@@ -3478,8 +3624,8 @@ class BudgetBuddy {
         const chartH = cssH - pad.top - pad.bottom;
 
         if (days.length === 0 || (!this.uiState.getTrendShowExpense() && !this.uiState.getTrendShowIncome())) {
-            ctx.fillStyle = '#9CA3AF';
-            ctx.font = '14px Inter, sans-serif';
+            ctx.fillStyle = theme.text3;
+            ctx.font = this.chartFont(13, 600);
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText('No data to display', cssW / 2, cssH / 2);
@@ -3493,10 +3639,10 @@ class BudgetBuddy {
         for (let v = 0; v <= yMax; v += yStep) yTicks.push(v);
 
         // Grid lines + Y labels
-        ctx.strokeStyle = '#E5E7EB';
+        ctx.strokeStyle = theme.border;
         ctx.lineWidth = 1;
-        ctx.fillStyle = '#6B7280';
-        ctx.font = '11px Inter, sans-serif';
+        ctx.fillStyle = theme.text2;
+        ctx.font = this.chartFont(11, 500);
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
 
@@ -3512,8 +3658,8 @@ class BudgetBuddy {
         // X-axis labels (auto-spaced based on range)
         const slotW = chartW / days.length;
         const xLabels = this.getChartDayLabels(days, chartW);
-        ctx.fillStyle = '#6B7280';
-        ctx.font = '11px Inter, sans-serif';
+        ctx.fillStyle = theme.text2;
+        ctx.font = this.chartFont(11, 500);
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         xLabels.forEach(({ i, label }) => {
@@ -3521,7 +3667,7 @@ class BudgetBuddy {
         });
 
         // Draw a line series (no dots)
-        const drawLine = (values, color, fillColor) => {
+        const drawLine = (values, color) => {
             if (values.length === 0) return;
             ctx.strokeStyle = color;
             ctx.lineWidth = 2;
@@ -3536,8 +3682,11 @@ class BudgetBuddy {
             });
             ctx.lineTo(pad.left + slotW * (values.length - 1) + slotW / 2, pad.top + chartH);
             ctx.closePath();
-            ctx.fillStyle = fillColor;
+            ctx.save();
+            ctx.globalAlpha = 0.10;
+            ctx.fillStyle = color;
             ctx.fill();
+            ctx.restore();
 
             // Stroke line
             ctx.beginPath();
@@ -3551,8 +3700,8 @@ class BudgetBuddy {
         };
 
         // Draw expense first (behind), then income (on top)
-        if (this.uiState.getTrendShowExpense()) drawLine(expenseValues, '#DC2626', 'rgba(220,38,38,0.08)');
-        if (this.uiState.getTrendShowIncome())  drawLine(incomeValues,  '#059669', 'rgba(5,150,105,0.08)');
+        if (this.uiState.getTrendShowExpense()) drawLine(expenseValues, theme.danger);
+        if (this.uiState.getTrendShowIncome())  drawLine(incomeValues,  theme.income);
     }
 
     // Returns [{i, label}, …] for X-axis tick labels, auto-spaced to avoid overlap

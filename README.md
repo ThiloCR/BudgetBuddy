@@ -13,8 +13,10 @@ A personal finance tracker that makes it easy to keep track of your money. Budge
 - **Accounts** — track chequing, savings, cash, credit, TFSA, RRSP, investment, and mortgage accounts, with a running net‑worth total.
 - **Envelope budgeting** — organize spending into categories and groups, set monthly limits, and allocate available money to each category.
 - **Transactions** — record income, expenses, and transfers; split a single transaction across multiple categories; bulk‑edit and bulk‑delete.
-- **Dashboard** — accounts summary, spending‑by‑category breakdown, and a spending‑trend chart.
+- **Dashboard** — accounts summary, an interactive donut of spending‑by‑category (hover to inspect, top‑10 + "Other" grouping), and a spending‑trend chart.
+- **Themes** — light and dark modes with a toggle (follows your OS preference by default), plus switchable accent colors.
 - **Import / export** — back up and restore your data as CSV (or a ZIP bundle).
+- **Demo data** — load a realistic sample dataset from **Settings → Data** to explore the app instantly.
 - **Responsive** — works on desktop and mobile, with a dedicated bottom navigation on small screens.
 
 ## Tech stack
@@ -26,7 +28,8 @@ BudgetBuddy is intentionally dependency‑light — no framework, no build step.
   - [`services/DataStore.js`](services/DataStore.js) — all CRUD operations and `localStorage` persistence
   - [`services/MoneyService.js`](services/MoneyService.js) — money math (avoiding floating‑point errors)
   - [`services/UIStateManager.js`](services/UIStateManager.js) — view/UI state
-- [Inter](https://rsms.me/inter/) for typography; hand‑rolled `<canvas>` charts (no chart library)
+  - [`services/DemoData.js`](services/DemoData.js) — generates the sample dataset
+- **Plus Jakarta Sans** + **Space Grotesk** (via Google Fonts) for typography; a CSS custom‑property design system for theming; hand‑rolled `<canvas>` charts (no chart library)
 
 ## Running locally
 
@@ -52,9 +55,10 @@ BudgetBuddy/
 ├── services/               # Framework-free service layer
 │   ├── DataStore.js
 │   ├── MoneyService.js
-│   └── UIStateManager.js
-├── BBbrandguidelines.md    # Brand & design guidelines
-└── BudgetBuddyV2.svg       # Logo
+│   ├── UIStateManager.js
+│   └── DemoData.js
+├── favicon.svg             # Logo mark (the in-app logo is inline SVG)
+└── BBbrandguidelines.md    # Brand & design guidelines
 ```
 
 ## License

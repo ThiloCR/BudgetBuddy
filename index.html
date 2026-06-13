@@ -5,15 +5,46 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BudgetBuddy - Personal Finance Tracker</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <meta name="theme-color" content="#0E8C66">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <script>
+        // Apply saved theme + accent before paint (no flash)
+        (function () {
+            var root = document.documentElement;
+            var theme = localStorage.getItem('budgetbuddy_theme');
+            if (!theme) theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            root.setAttribute('data-theme', theme);
+            root.setAttribute('data-accent', localStorage.getItem('budgetbuddy_accent') || 'emerald');
+        })();
+    </script>
 </head>
 <body>
     <header class="topbar">
-        <div class="logo">
-            <img src="BudgetBuddyV2.svg" alt="BudgetBuddy" />
+        <a class="brand" href="#" aria-label="BudgetBuddy home">
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="48" height="48" rx="13" fill="var(--accent)"/>
+                    <circle cx="31" cy="18" r="7.5" fill="#FFFFFF" fill-opacity="0.45"/>
+                    <circle cx="20" cy="27" r="11" fill="#FFFFFF"/>
+                    <path d="M15.5 30.5L22 24l3 3 5-5.5" fill="none" stroke="var(--accent-strong)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M27 21.5h3v3" fill="none" stroke="var(--accent-strong)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </span>
+            <span class="brand-word"><span>Budget</span><b>Buddy</b></span>
+        </a>
+        <div class="topbar-tools">
+            <div class="accent-picker" role="group" aria-label="Accent color">
+                <button class="accent-dot" data-accent-choice="emerald" title="Emerald" aria-label="Emerald accent"></button>
+                <button class="accent-dot" data-accent-choice="indigo" title="Indigo" aria-label="Indigo accent"></button>
+                <button class="accent-dot" data-accent-choice="blue" title="Blue" aria-label="Blue accent"></button>
+            </div>
+            <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle theme">
+                <svg class="icon-moon" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <svg class="icon-sun" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8L6 18M18 6l1.8-1.8"/></svg>
+            </button>
         </div>
     </header>
 
@@ -592,6 +623,51 @@
             </svg>
         </button>
     </nav>
+
+    <!-- Service layer scripts (must load before app.js) -->
+    <script>
+        // Theme + accent controls
+        (function () {
+            var root = document.documentElement;
+            function syncAccentDots() {
+                var current = root.getAttribute('data-accent') || 'emerald';
+                document.querySelectorAll('.accent-dot').forEach(function (d) {
+                    d.classList.toggle('active', d.getAttribute('data-accent-choice') === current);
+                });
+                var tc = document.querySelector('meta[name="theme-color"]');
+                if (tc) tc.setAttribute('content', getComputedStyle(root).getPropertyValue('--accent').trim() || '#0E8C66');
+            }
+            // Canvas charts don't pick up CSS variable changes on their own, and
+            // updateDashboard()'s smart re-render skips them when data is unchanged.
+            // So redraw the canvases directly when the dashboard is visible.
+            // (app is a top-level `const`, so it's referenced directly, not via window.)
+            function refreshCharts() {
+                if (typeof app === 'undefined' || !app) return;
+                var dash = document.getElementById('dashboard-view');
+                if (!dash || !dash.classList.contains('active')) return;
+                if (typeof app.renderSpendingChart === 'function') app.renderSpendingChart();
+                if (typeof app.renderTrendChart === 'function') app.renderTrendChart();
+            }
+            document.querySelectorAll('.accent-dot').forEach(function (dot) {
+                dot.addEventListener('click', function () {
+                    var choice = dot.getAttribute('data-accent-choice');
+                    root.setAttribute('data-accent', choice);
+                    localStorage.setItem('budgetbuddy_accent', choice);
+                    syncAccentDots();
+                    refreshCharts();
+                });
+            });
+            var toggle = document.getElementById('theme-toggle');
+            if (toggle) toggle.addEventListener('click', function () {
+                var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                root.setAttribute('data-theme', next);
+                localStorage.setItem('budgetbuddy_theme', next);
+                syncAccentDots();
+                refreshCharts();
+            });
+            syncAccentDots();
+        })();
+    </script>
 
     <!-- Service layer scripts (must load before app.js) -->
     <script src="services/MoneyService.js"></script>
