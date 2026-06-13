@@ -1,4 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <circle cx="50" cy="50" r="50" fill="#2563EB"/>
-  <text x="50" y="50" font-family="Inter, Arial, sans-serif" font-size="60" font-weight="700" fill="#F3F4F6" text-anchor="middle" dominant-baseline="central">B</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="bbTile" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#16A375"></stop>
+      <stop offset="1" stop-color="#0A7355"></stop>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="13" fill="url(#bbTile)"></rect>
+  <circle cx="31" cy="18" r="7.5" fill="#FFFFFF" fill-opacity="0.45"></circle>
+  <circle cx="20" cy="27" r="11" fill="#FFFFFF"></circle>
+  <path d="M15.5 30.5L22 24l3 3 5-5.5" fill="none" stroke="#0A7355" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path>
+  <path d="M27 21.5h3v3" fill="none" stroke="#0A7355" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path>
 </svg>
